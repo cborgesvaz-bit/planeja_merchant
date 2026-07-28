@@ -1532,21 +1532,10 @@ function AppMain({currentUser,onLogout}){
   const[users,setUsers]=useState(DEFAULT_USERS);
   const handleLogout=()=>{onLogout();};
 
-  const[tasks,setTasks]=useState(()=>{
-    try{
-      const saved=localStorage.getItem('pm_tasks');
-      if(saved){const parsed=JSON.parse(saved);if(Array.isArray(parsed)&&parsed.length>0)return parsed;}
-    }catch(e){}
-    return T0;
-  });
+  const[tasks,setTasks]=useState([]);
   const[iStatus,setIStatus]=useState({});
-  const[nextId,setNextId]=useState(()=>{
-    try{
-      const saved=localStorage.getItem('pm_tasks');
-      if(saved){const parsed=JSON.parse(saved);if(Array.isArray(parsed)&&parsed.length>0)return Math.max(...parsed.map(t=>t.id||0))+1;}
-    }catch(e){}
-    return T0.length+1;
-  });
+  const[nextId,setNextId]=useState(1);
+  const[loaded,setLoaded]=useState(false);
   const[view,setView]=useState('board');
   const[drawerOpen,setDrawerOpen]=useState(false);
   const[editing,setEditing]=useState(null);
@@ -1578,7 +1567,6 @@ function AppMain({currentUser,onLogout}){
   useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('resps',resps),600);return()=>clearTimeout(t);},[resps,loaded]);
   useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('users',users),600);return()=>clearTimeout(t);},[users,loaded]);
   const active=useMemo(()=>tasks.filter(t=>!DONE.includes(t.s)),[tasks]);
-  if(!loaded)return <LoadingScreen/>;
   const allG=useMemo(()=>[...new Set(tasks.map(t=>t.g))].sort((a,b)=>a.localeCompare(b,'pt-BR')),[tasks]);
   const sCounts=useMemo(()=>tasks.reduce((a,t)=>{a[t.s]=(a[t.s]||0)+1;return a;},{}),[tasks]);
 
@@ -1602,6 +1590,7 @@ function AppMain({currentUser,onLogout}){
 
   const VIEWS=[['board','Board','B'],['timeline','Timeline','T'],['historico','Historico','H']];
 
+  if(!loaded)return <LoadingScreen/>;
   return(
     <div style={{background:'var(--bg)',minHeight:'100vh'}}>
       <div style={{background:'#FFFFFF',borderBottom:'1px solid var(--border)',boxShadow:'0 1px 6px rgba(0,0,0,.07)',position:'sticky',top:0,zIndex:100}}>
