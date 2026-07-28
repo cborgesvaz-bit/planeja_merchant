@@ -22,7 +22,6 @@ select option{background:var(--bg1);color:var(--txt1)}
 .tr:hover td{background:rgba(37,99,235,.05)!important}.tr td{transition:background .12s}
 .eb{opacity:0;transition:opacity .15s}.tr:hover .eb{opacity:1}
 .gc:hover{filter:brightness(.92)!important}
-td{word-break:normal;overflow-wrap:normal}
 </style></head>
 <body><div id="root"></div>
 <script type="text/babel">
@@ -440,6 +439,7 @@ function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,ope
   const toggleF=(arr,setArr,val)=>setArr(prev=>prev.includes(val)?prev.filter(v=>v!==val):[...prev,val]);
   const toggleRow=id=>setExpanded(prev=>{const s=new Set(prev);s.has(id)?s.delete(id):s.add(id);return s;});
   const toggleSel=id=>setSelected(prev=>{const s=new Set(prev);s.has(id)?s.delete(id):s.add(id);return s;});
+  const toggleGrupoCollapse=g=>setCollapsedGrupos(prev=>{const s=new Set(prev);s.has(g)?s.delete(g):s.add(g);return s;});
   const selAll=ids=>{const all=ids.every(id=>selected.has(id));setSelected(prev=>{const s=new Set(prev);all?ids.forEach(id=>s.delete(id)):ids.forEach(id=>s.add(id));return s;});};
   const clearSel=()=>setSelected(new Set());
 
@@ -591,7 +591,7 @@ function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,ope
               const isCD=confDel&&confDel.type==='g'&&confDel.name===grupo;
               const cnt=tasks.filter(t=>t.g===grupo).length;
               return(
-                <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8,paddingBottom:6,borderBottom:'1px solid var(--border)',flexWrap:'nowrap',overflow:'hidden'}}>
+                <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8,paddingBottom:6,borderBottom:'2px solid var(--border)'}}>
                   {isCD
                     ?<div style={{display:'flex',alignItems:'center',gap:7,padding:'4px 12px',background:'rgba(220,38,38,.06)',border:'1px solid rgba(220,38,38,.2)',borderRadius:8}}>
                        <span style={{fontSize:12,color:'#DC2626'}}>Excluir {cnt} tarefa{cnt!==1?'s':''}?</span>
@@ -601,10 +601,13 @@ function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,ope
                     :isEd
                       ?<input ref={grupoRef} value={editGrupo.draft} onChange={e=>setEditGrupo(g=>({...g,draft:e.target.value}))} onBlur={commitRename} onKeyDown={e=>{if(e.key==='Enter')commitRename();if(e.key==='Escape')setEditGrupo(null);}} style={{fontSize:14,fontWeight:700,color:'var(--txt1)',background:'rgba(37,99,235,.06)',border:'1px solid rgba(37,99,235,.3)',borderRadius:7,padding:'3px 10px',outline:'none',minWidth:200}}/>
                       :<React.Fragment>
+                         <button onClick={()=>toggleGrupoCollapse(grupo)} title={collapsedGroups.has(grupo)?"Expandir":"Recolher"} style={{background:'none',border:'none',cursor:'pointer',padding:'3px',borderRadius:5,color:'var(--txt2)',display:'flex',alignItems:'center',justifyContent:'center',transition:'transform .2s',transform:collapsedGroups.has(grupo)?'rotate(-90deg)':'rotate(0deg)'}}>
+                           <Ic n="chevron" s={14} c="currentColor"/>
+                         </button>
                          <button onClick={()=>toggleGroupCollapse(grupo)} title={collapsedGroups.has(grupo)?"Expandir":"Recolher"} style={{background:'none',border:'none',color:'var(--txt3)',cursor:'pointer',padding:'3px',borderRadius:5,display:'flex',alignItems:'center',justifyContent:'center',transition:'all .2s',transform:collapsedGroups.has(grupo)?'rotate(-90deg)':'rotate(0deg)'}} onMouseOver={e=>e.currentTarget.style.color='var(--accent)'} onMouseOut={e=>e.currentTarget.style.color='var(--txt3)'}><Ic n="chevron" s={15} c="currentColor"/></button>
-                         <span style={{fontSize:13,fontWeight:700,color:'var(--txt1)',letterSpacing:-.2,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',maxWidth:300}}>{grupo}</span>
+                         <span style={{fontSize:14,fontWeight:700,color:'var(--txt1)',letterSpacing:-.2,whiteSpace:'nowrap'}}>{grupo}</span>
                          <span style={{fontSize:10,color:'var(--txt3)',background:'var(--bg2)',border:'1px solid var(--border)',padding:'1px 8px',borderRadius:99,flexShrink:0,fontWeight:500}}>{gtasks.length} tarefa{gtasks.length!==1?'s':''}</span>
-                         <select value={iStatus[grupo]||''} onChange={e=>{if(setIStatus)setIStatus(prev=>({...prev,[grupo]:e.target.value}));}} style={{fontSize:11,fontWeight:600,padding:'3px 10px',borderRadius:99,border:'1px solid '+(IS_CFG[iStatus[grupo]]?IS_CFG[iStatus[grupo]].c+'55':'var(--border)'),background:IS_CFG[iStatus[grupo]]?IS_CFG[iStatus[grupo]].bg:'var(--bg2)',color:IS_CFG[iStatus[grupo]]?IS_CFG[iStatus[grupo]].c:'var(--txt3)',cursor:'pointer',outline:'none',flexShrink:0,maxWidth:180,minWidth:120}}>
+                         <select value={iStatus[grupo]||''} onChange={e=>{if(setIStatus)setIStatus(prev=>({...prev,[grupo]:e.target.value}));}} style={{fontSize:11,fontWeight:600,padding:'3px 10px',borderRadius:99,border:'1px solid '+(IS_CFG[iStatus[grupo]]?IS_CFG[iStatus[grupo]].c+'55':'var(--border)'),background:IS_CFG[iStatus[grupo]]?IS_CFG[iStatus[grupo]].bg:'var(--bg2)',color:IS_CFG[iStatus[grupo]]?IS_CFG[iStatus[grupo]].c:'var(--txt3)',cursor:'pointer',outline:'none',flexShrink:0,maxWidth:'none',minWidth:160}}>
                            <option value="">— Status —</option>
                            {Object.keys(IS_CFG).map(s=><option key={s} value={s}>{s}</option>)}
                          </select>
@@ -629,7 +632,7 @@ function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,ope
                   <th style={{padding:'10px 8px',width:36,borderBottom:'1px solid var(--border)',borderTop:'1px solid var(--border)',background:'#F1F4F8',textAlign:'center'}}>
                     <input type="checkbox" checked={gtasks.length>0&&gtasks.every(t=>selected.has(t.id))} onChange={()=>selAll(gtasks.map(t=>t.id))} style={{cursor:'pointer',width:14,height:14,accentColor:'var(--accent)'}}/>
                   </th>
-                  {[['c',<Ic n="card"/>,'Card',110],['t',<Ic n="task"/>,'Tarefa',null],['s',<Ic n="status"/>,'Status',175],['r',<Ic n="person"/>,'Responsavel',130],['v',<Ic n="tag"/>,'Versao',90]].map(([col,icon,lbl,w])=>(
+                  {[['c',<Ic n="card"/>,'Card',100],['t',<Ic n="task"/>,'Tarefa',null],['s',<Ic n="status"/>,'Status',175],['r',<Ic n="person"/>,'Responsavel',130],['v',<Ic n="tag"/>,'Versao',90]].map(([col,icon,lbl,w])=>(
                     <th key={col} style={{...thSt(col),...(w?{width:w}:{})}} onClick={()=>toggleSort(col)}>
                       <span style={{display:'inline-flex',alignItems:'center',gap:5,color:'inherit'}}>{icon}<span>{lbl}</span> <SortIcon dir={sortCol===col?sortDir:null}/></span>
                     </th>
@@ -649,10 +652,10 @@ function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,ope
                         <td style={{padding:'9px 8px',borderBottom:'1px solid var(--border)',textAlign:'center',width:36}} onClick={e=>e.stopPropagation()}>
                           <input type="checkbox" checked={selected.has(task.id)} onChange={()=>toggleSel(task.id)} style={{cursor:'pointer',width:14,height:14,accentColor:'var(--accent)'}}/>
                         </td>
-                        <td style={{padding:'9px 12px',borderBottom:'1px solid var(--border)',background:bg,borderLeft:'2px solid '+(exp?(cfg.c||'var(--cyan)'):'transparent'),width:110,minWidth:100,overflow:'hidden'}}>
-                          {task.c?<span style={{fontFamily:'monospace',fontSize:11,color:'var(--txt2)',background:'var(--bg)',padding:'2px 5px',borderRadius:4,border:'1px solid var(--border)',fontWeight:500,whiteSpace:'nowrap',display:'inline-block'}}>{task.c}</span>:<span style={{color:'var(--txt3)',fontSize:10}}>-</span>}
+                        <td style={{padding:'11px 13px',borderBottom:'1px solid var(--border)',background:bg,borderLeft:'2px solid '+(exp?(cfg.c||'var(--cyan)'):'transparent')}}>
+                          {task.c?<span style={{fontFamily:'monospace',fontSize:12,color:'var(--txt2)',background:'var(--bg)',padding:'2px 6px',borderRadius:4,border:'1px solid var(--border)',fontWeight:500}}>{task.c}</span>:<span style={{color:'var(--txt3)',fontSize:10}}>-</span>}
                         </td>
-                        <td style={{padding:'10px 12px',borderBottom:'1px solid var(--border)',background:bg,fontSize:13,color:'var(--txt1)',lineHeight:1.4}}>{task.t}</td>
+                        <td style={{padding:'11px 13px',borderBottom:'1px solid var(--border)',background:bg,fontSize:14,color:'var(--txt1)',maxWidth:460,lineHeight:1.5}}>{task.t}</td>
                         <td style={{padding:'9px 11px',borderBottom:'1px solid var(--border)',background:bg}}><Badge s={task.s}/></td>
                         <td style={{padding:'11px 13px',borderBottom:'1px solid var(--border)',background:bg,fontSize:11}}>
                           {task.r?<div style={{display:'flex',alignItems:'center',gap:6}}>
