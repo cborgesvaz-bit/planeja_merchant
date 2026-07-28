@@ -1,0 +1,11 @@
+:root{--bg:#F3F4F6;--bg1:#FFFFFF;--bg2:#F9FAFB;--bg3:#EEF2FF;--border:#E5E7EB;--border2:#D1D5DB;--txt1:#111827;--txt2:#4B5563;--txt3:#9CA3AF;--cyan:#0891B2;--accent:#2563EB}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}html,body,#root{height:100%}
+body{background:var(--bg);font-family:'Inter',system-ui,sans-serif;color:var(--txt1);-webkit-font-smoothing:antialiased}
+::-webkit-scrollbar{width:5px;height:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border2);border-radius:10px}
+input,select,textarea,button{font-family:inherit}input::placeholder,textarea::placeholder{color:var(--txt3)}
+select option{background:var(--bg1);color:var(--txt1)}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.5)}}
+@keyframes fadeSlideUp{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}
+.tr:hover td{background:rgba(37,99,235,.05)!important}.tr td{transition:background .12s}
+.eb{opacity:0;transition:opacity .15s}.tr:hover .eb{opacity:1}
+.gc:hover{filter:brightness(.92)!important}
