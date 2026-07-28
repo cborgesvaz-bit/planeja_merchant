@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
-import { supabase } from "./lib/supabaseClient";
+import { supabase } from "./supabaseClient";
 import './App.css';
 
 
