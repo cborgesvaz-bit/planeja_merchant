@@ -35,6 +35,62 @@ const SUPA_URL='https://vlkvaumpgpisbokisbis.supabase.co';
 const SUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZsa3ZhdW1wZ3Bpc2Jva2lzYmlzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUxOTAyNzksImV4cCI6MjEwMDc2NjI3OX0.yt_d5YY99b98NIVwGkWTqWEbN49XPaIHOnJOFbZudTE';
 const SUPA_HDR={apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'application/json'};
 
+// Map app task object ↔ Supabase row
+const taskToRow=t=>({
+  id:t.id,
+  'Iniciativa':t.g||'',
+  'Card':t.c||'',
+  'Tarefa':t.t||'',
+  'Status':t.s||'Nao Iniciado',
+  'Responsavel':t.r||'',
+  versao:t.v||'',
+  mr_links:t.mr||'',
+  acompanhamento:t.a||'',
+  plan_data:t.plan||'',
+});
+const rowToTask=r=>({
+  id:r.id,
+  g:r['Iniciativa']||'',
+  c:r['Card']||'',
+  t:r['Tarefa']||'',
+  s:r['Status']||'Nao Iniciado',
+  r:r['Responsavel']||'',
+  v:r.versao||'',
+  mr:r.mr_links||'',
+  a:r.acompanhamento||'',
+  plan:r.plan_data||'',
+});
+
+async function loadTasks(){
+  try{
+    const res=await fetch(SUPA_URL+'/rest/v1/tasks?select=*&order=id.asc',{headers:SUPA_HDR});
+    const rows=await res.json();
+    return Array.isArray(rows)&&rows.length>0?rows.map(rowToTask):null;
+  }catch(e){console.error('loadTasks',e);return null;}
+}
+
+async function saveTasks(tasks){
+  try{
+    // Upsert all tasks
+    const rows=tasks.map(taskToRow);
+    await fetch(SUPA_URL+'/rest/v1/tasks',{
+      method:'POST',
+      headers:{...SUPA_HDR,Prefer:'resolution=merge-duplicates'},
+      body:JSON.stringify(rows),
+    });
+    // Delete removed tasks: fetch all IDs then delete ones not in current list
+    const res=await fetch(SUPA_URL+'/rest/v1/tasks?select=id',{headers:SUPA_HDR});
+    const allRows=await res.json();
+    const currentIds=new Set(tasks.map(t=>t.id));
+    const toDelete=allRows.filter(r=>!currentIds.has(r.id)).map(r=>r.id);
+    if(toDelete.length>0){
+      await fetch(SUPA_URL+'/rest/v1/tasks?id=in.('+toDelete.join(',')+')',{
+        method:'DELETE',headers:SUPA_HDR,
+      });
+    }
+  }catch(e){console.error('saveTasks',e);}
+}
+
 async function dbGet(key){
   try{
     const r=await fetch(SUPA_URL+'/rest/v1/pm_data?key=eq.'+key+'&select=value',{headers:SUPA_HDR});
@@ -1504,7 +1560,7 @@ function AppMain({currentUser,onLogout}){
   useEffect(()=>{
     (async()=>{
       try{
-        const[t,r,is,u]=await Promise.all([dbGet('tasks'),dbGet('resps'),dbGet('istatus'),dbGet('users')]);
+        const[t,r,is,u]=await Promise.all([loadTasks(),dbGet('resps'),dbGet('istatus'),dbGet('users')]);
         const td=Array.isArray(t)&&t.length>0?t:T0;
         setTasks(td);
         setNextId(Math.max(...td.map(x=>x.id||0),0)+1);
@@ -1517,7 +1573,7 @@ function AppMain({currentUser,onLogout}){
   },[]);
 
   // Save to Supabase (debounced)
-  useEffect(()=>{if(!loaded||!tasks.length)return;const t=setTimeout(()=>dbSet('tasks',tasks),600);return()=>clearTimeout(t);},[tasks,loaded]);
+  useEffect(()=>{if(!loaded||!tasks.length)return;const t=setTimeout(()=>saveTasks(tasks),600);return()=>clearTimeout(t);},[tasks,loaded]);
   useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('istatus',iStatus),600);return()=>clearTimeout(t);},[iStatus,loaded]);
   useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('resps',resps),600);return()=>clearTimeout(t);},[resps,loaded]);
   useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('users',users),600);return()=>clearTimeout(t);},[users,loaded]);
