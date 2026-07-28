@@ -28,6 +28,44 @@ td{word-break:normal;overflow-wrap:normal}
 <script type="text/babel">
 const {useState,useMemo,useEffect,useRef}=React;
 
+/* ══════════════════════════════════════════════════════
+   SUPABASE CONFIG
+   ══════════════════════════════════════════════════════ */
+const SUPA_URL='https://vlkvaumpgpisbokisbis.supabase.co';
+const SUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZsa3ZhdW1wZ3Bpc2Jva2lzYmlzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUxOTAyNzksImV4cCI6MjEwMDc2NjI3OX0.yt_d5YY99b98NIVwGkWTqWEbN49XPaIHOnJOFbZudTE';
+const SUPA_HDR={apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'application/json'};
+
+async function dbGet(key){
+  try{
+    const r=await fetch(SUPA_URL+'/rest/v1/pm_data?key=eq.'+key+'&select=value',{headers:SUPA_HDR});
+    const d=await r.json();
+    return d&&d.length>0?d[0].value:null;
+  }catch(e){console.error('dbGet',key,e);return null;}
+}
+
+async function dbSet(key,value){
+  try{
+    await fetch(SUPA_URL+'/rest/v1/pm_data',{
+      method:'POST',
+      headers:{...SUPA_HDR,Prefer:'resolution=merge-duplicates'},
+      body:JSON.stringify({key,value,updated_at:new Date().toISOString()})
+    });
+  }catch(e){console.error('dbSet',key,e);}
+}
+
+function LoadingScreen(){
+  return(
+    <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'var(--bg)',flexDirection:'column',gap:16}}>
+      <div style={{width:48,height:48,borderRadius:12,background:'linear-gradient(135deg,var(--accent),var(--cyan))',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22}}>🧭</div>
+      <div style={{fontSize:15,fontWeight:600,color:'var(--txt2)'}}>Carregando Planeja Merchant...</div>
+      <div style={{width:200,height:3,background:'var(--border)',borderRadius:99,overflow:'hidden'}}>
+        <div style={{width:'60%',height:'100%',background:'linear-gradient(90deg,var(--accent),var(--cyan))',borderRadius:99,animation:'pulse 1.5s ease infinite'}}/>
+      </div>
+    </div>
+  );
+}
+
+
 const SC={"Em andamento":{c:"#0891B2",bg:"rgba(8,145,178,.1)",d:"#0891B2",p:true},"Bloqueado":{c:"#DC2626",bg:"rgba(220,38,38,.1)",d:"#DC2626",p:false},"Nao Iniciado":{c:"#6B7280",bg:"rgba(107,114,128,.1)",d:"#6B7280",p:false},"Aguard. Deploy PRD":{c:"#B45309",bg:"rgba(180,83,9,.1)",d:"#B45309",p:false},"Paralisado":{c:"#EA580C",bg:"rgba(234,88,12,.1)",d:"#EA580C",p:false},"Finalizado":{c:"#059669",bg:"rgba(5,150,105,.1)",d:"#059669",p:false},"Entregue":{c:"#047857",bg:"rgba(4,120,87,.1)",d:"#047857",p:false},"Pendente":{c:"#7C3AED",bg:"rgba(124,58,237,.1)",d:"#7C3AED",p:false},"Deploy PRD":{c:"#0369A1",bg:"rgba(3,105,161,.12)",d:"#0369A1",p:false}};
 const PH={PRD:{lb:"PRD",col:"#047857",sl:"rgba(4,120,87,.75)",pr:6},QA:{lb:"Q.A",col:"#2563EB",sl:"rgba(37,99,235,.75)",pr:5},STG:{lb:"STG",col:"#B45309",sl:"rgba(180,83,9,.75)",pr:4},MR:{lb:"MR",col:"#7C3AED",sl:"rgba(124,58,237,.75)",pr:3},DEV:{lb:"Dev",col:"#0891B2",sl:"rgba(8,145,178,.75)",pr:2},BLOCKED:{lb:"Bloq.",col:"#DC2626",sl:"rgba(220,38,38,.75)",pr:1},CUSTOM:{lb:"?",col:"#6366F1",sl:"rgba(99,102,241,.75)",pr:0}};
 const DONE=["Finalizado","Entregue"];
@@ -1311,14 +1349,14 @@ function LoginScreen({onLogin}){
 }
 
 /* ── User Manager ─────────────────────────────────────── */
-function UserManager({currentUser,onClose}){
-  const[users,setUsersState]=useState(getUsers());
+function UserManager({currentUser,users,setUsers,onClose}){
+  const setUsersState=u=>{setUsers(u);};
   const[form,setForm]=useState({name:'',email:'',pass:'',role:'editor'});
   const[editing,setEditing]=useState(null);
   const[errs,setErrs]=useState({});
   const[confirmDel,setConfirmDel]=useState(null);
 
-  const saveAll=u=>{setUsersState(u);saveUsers(u);};
+  const saveAll=u=>{setUsersState(u);};
 
   const validate=()=>{
     const e={};
@@ -1434,7 +1472,8 @@ function AppMain({currentUser,onLogout}){
   const isAdmin=currentUser.role==='admin';
   const[showUserMgr,setShowUserMgr]=useState(false);
   const[showRespMgr,setShowRespMgr]=useState(false);
-  const[resps,setRespsLocal]=useState(()=>getResps());
+  const[resps,setRespsLocal]=useState(DEFAULT_RESP);
+  const[users,setUsers]=useState(DEFAULT_USERS);
   const handleLogout=()=>{onLogout();};
 
   const[tasks,setTasks]=useState(()=>{
@@ -1444,10 +1483,7 @@ function AppMain({currentUser,onLogout}){
     }catch(e){}
     return T0;
   });
-  const[iStatus,setIStatus]=useState(()=>{
-    try{const s=localStorage.getItem('pm_istatus');if(s)return JSON.parse(s);}catch(e){}
-    return{};
-  });
+  const[iStatus,setIStatus]=useState({});
   const[nextId,setNextId]=useState(()=>{
     try{
       const saved=localStorage.getItem('pm_tasks');
@@ -1461,12 +1497,32 @@ function AppMain({currentUser,onLogout}){
   const[toast,setToast]=useState(null);
   const[showIM,setShowIM]=useState(false);
   const[bulkCreate,setBulkCreate]=useState(null);
-  const hasLocalData=useMemo(()=>{try{return!!localStorage.getItem('pm_tasks');}catch(e){return false;}},[tasks]);
-  const restoreDefaults=()=>{try{localStorage.removeItem('pm_tasks');window.location.reload();}catch(e){}};
+  const hasLocalData=true;
+  const restoreDefaults=async()=>{if(window.confirm('Restaurar dados originais?')){await dbSet('tasks',T0);window.location.reload();}};
 
-  useEffect(()=>{try{if(tasks&&tasks.length>0)localStorage.setItem('pm_tasks',JSON.stringify(tasks));}catch(e){}},[tasks]);
-  useEffect(()=>{try{localStorage.setItem('pm_istatus',JSON.stringify(iStatus));}catch(e){}},[iStatus]);
+  // Load all data from Supabase on mount
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const[t,r,is,u]=await Promise.all([dbGet('tasks'),dbGet('resps'),dbGet('istatus'),dbGet('users')]);
+        const td=Array.isArray(t)&&t.length>0?t:T0;
+        setTasks(td);
+        setNextId(Math.max(...td.map(x=>x.id||0),0)+1);
+        if(Array.isArray(r)&&r.length>0)setRespsLocal(r);
+        if(is&&typeof is==='object')setIStatus(is);
+        if(Array.isArray(u)&&u.length>0)setUsers(u);
+      }catch(e){console.error('Load error:',e);setTasks(T0);setNextId(T0.length+1);}
+      setLoaded(true);
+    })();
+  },[]);
+
+  // Save to Supabase (debounced)
+  useEffect(()=>{if(!loaded||!tasks.length)return;const t=setTimeout(()=>dbSet('tasks',tasks),600);return()=>clearTimeout(t);},[tasks,loaded]);
+  useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('istatus',iStatus),600);return()=>clearTimeout(t);},[iStatus,loaded]);
+  useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('resps',resps),600);return()=>clearTimeout(t);},[resps,loaded]);
+  useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('users',users),600);return()=>clearTimeout(t);},[users,loaded]);
   const active=useMemo(()=>tasks.filter(t=>!DONE.includes(t.s)),[tasks]);
+  if(!loaded)return <LoadingScreen/>;
   const allG=useMemo(()=>[...new Set(tasks.map(t=>t.g))].sort((a,b)=>a.localeCompare(b,'pt-BR')),[tasks]);
   const sCounts=useMemo(()=>tasks.reduce((a,t)=>{a[t.s]=(a[t.s]||0)+1;return a;},{}),[tasks]);
 
@@ -1502,7 +1558,7 @@ function AppMain({currentUser,onLogout}){
                 <span style={{fontSize:11,color:'var(--txt3)'}}>{active.length} ativas - <span style={{color:'#34D399'}}>{tasks.filter(t=>DONE.includes(t.s)).length} concluidas</span></span>
                 {hasLocalData&&<div style={{display:'inline-flex',alignItems:'center',gap:6,padding:'2px 10px',borderRadius:99,background:'rgba(16,185,129,.1)',border:'1px solid rgba(16,185,129,.3)'}}>
                   <span style={{width:7,height:7,borderRadius:'50%',background:'#10B981',flexShrink:0}}/>
-                  <span style={{fontSize:10,fontWeight:600,color:'#059669',whiteSpace:'nowrap'}}>Dados do armazenamento local</span>
+                  <span style={{fontSize:10,fontWeight:600,color:'#059669',whiteSpace:'nowrap'}}>Conectado ao Supabase</span>
                   <button onClick={restoreDefaults} title="Restaurar dados originais" style={{background:'none',border:'none',color:'#059669',cursor:'pointer',fontSize:10,fontWeight:600,marginLeft:2,padding:'0 2px',display:'flex',alignItems:'center',gap:3,whiteSpace:'nowrap'}}>
                     <span style={{fontSize:12}}>&#8635;</span> Restaurar
                   </button>
@@ -1551,8 +1607,8 @@ function AppMain({currentUser,onLogout}){
       <Drawer open={drawerOpen} onClose={()=>setDrawerOpen(false)} onSave={handleSave} grupos={allG} allResp={[...new Set([...resps,...tasks.map(t=>t.r).filter(Boolean)])].sort((a,b)=>a.localeCompare(b,'pt-BR'))} editing={editing}/>
       {toast&&<Toast msg={toast} onDone={()=>setToast(null)}/>}
       {showIM&&<InitiativeManager tasks={tasks} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus} onClose={()=>setShowIM(false)}/>}
-      {showUserMgr&&<UserManager currentUser={currentUser} onClose={()=>setShowUserMgr(false)}/>}
-      {showRespMgr&&<ResponsavelManager onClose={()=>{setShowRespMgr(false);setRespsLocal(getResps());}}/>}
+      {showUserMgr&&<UserManager currentUser={currentUser} users={users} setUsers={setUsers} onClose={()=>setShowUserMgr(false)}/>}
+      {showRespMgr&&<ResponsavelManager resps={resps} onSave={r=>{setRespsLocal(r);}} onClose={()=>setShowRespMgr(false)}/>}
       {bulkCreate&&<BulkCreateModal grupo={bulkCreate} onSave={handleMultiSave} onClose={()=>setBulkCreate(null)} nextId={nextId} allResp={resps}/>}
     </div>
   );
@@ -1564,15 +1620,15 @@ const DEFAULT_RESP=['Aleson','Camila','Diguinho','Islan','Lourene','Matheus'];
 function getResps(){try{const r=localStorage.getItem('pm_resps');return r?JSON.parse(r):DEFAULT_RESP;}catch(e){return DEFAULT_RESP;}}
 function saveResps(r){try{localStorage.setItem('pm_resps',JSON.stringify(r));}catch(e){}}
 
-function ResponsavelManager({onClose}){
-  const[resps,setRespsState]=useState(()=>getResps().sort((a,b)=>a.localeCompare(b,'pt-BR')));
+function ResponsavelManager({resps:initResps,onSave,onClose}){
+  const[resps,setRespsState]=useState((initResps||getResps()).slice().sort((a,b)=>a.localeCompare(b,'pt-BR')));
   const[newName,setNewName]=useState('');
   const[editing,setEditing]=useState(null); // {idx, draft}
   const[confirmDel,setConfirmDel]=useState(null);
   const[err,setErr]=useState('');
   const inputRef=useRef(null);
 
-  const persist=r=>{const s=[...r].sort((a,b)=>a.localeCompare(b,'pt-BR'));setRespsState(s);saveResps(s);};
+  const persist=r=>{const s=[...r].sort((a,b)=>a.localeCompare(b,'pt-BR'));setRespsState(s);if(onSave)onSave(s);};
 
   const add=()=>{
     const n=newName.trim();
