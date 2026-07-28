@@ -1429,17 +1429,11 @@ function UserManager({currentUser,onClose}){
   );
 }
 
-function App(){
-  const[currentUser,setCurrentUser]=useState(()=>getSession());
-  const[showUserMgr,setShowUserMgr]=useState(false);
-
-  const handleLogin=user=>{setCurrentUser(user);};
-  const handleLogout=()=>{clearSession();setCurrentUser(null);};
-
-  if(!currentUser)return <LoginScreen onLogin={handleLogin}/>;
-
+function AppMain({currentUser,onLogout}){
   const canEdit=currentUser.role==='admin'||currentUser.role==='editor';
   const isAdmin=currentUser.role==='admin';
+  const[showUserMgr,setShowUserMgr]=useState(false);
+  const handleLogout=()=>{onLogout();};
 
   const[tasks,setTasks]=useState(()=>{
     try{
@@ -1558,6 +1552,14 @@ function App(){
       {bulkCreate&&<BulkCreateModal grupo={bulkCreate} onSave={handleMultiSave} onClose={()=>setBulkCreate(null)} nextId={nextId}/>}
     </div>
   );
+}
+
+function App(){
+  const[currentUser,setCurrentUser]=useState(()=>getSession());
+  const login=user=>{saveSession(user);setCurrentUser(user);};
+  const logout=()=>{clearSession();setCurrentUser(null);};
+  if(!currentUser)return <LoginScreen onLogin={login}/>;
+  return <AppMain currentUser={currentUser} onLogout={logout}/>;
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
