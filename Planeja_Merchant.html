@@ -22,6 +22,7 @@ select option{background:var(--bg1);color:var(--txt1)}
 .tr:hover td{background:rgba(37,99,235,.05)!important}.tr td{transition:background .12s}
 .eb{opacity:0;transition:opacity .15s}.tr:hover .eb{opacity:1}
 .gc:hover{filter:brightness(.92)!important}
+td{word-break:normal;overflow-wrap:normal}
 </style></head>
 <body><div id="root"></div>
 <script type="text/babel">
@@ -628,7 +629,7 @@ function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,ope
                   <th style={{padding:'10px 8px',width:36,borderBottom:'1px solid var(--border)',borderTop:'1px solid var(--border)',background:'#F1F4F8',textAlign:'center'}}>
                     <input type="checkbox" checked={gtasks.length>0&&gtasks.every(t=>selected.has(t.id))} onChange={()=>selAll(gtasks.map(t=>t.id))} style={{cursor:'pointer',width:14,height:14,accentColor:'var(--accent)'}}/>
                   </th>
-                  {[['c',<Ic n="card"/>,'Card',100],['t',<Ic n="task"/>,'Tarefa',null],['s',<Ic n="status"/>,'Status',175],['r',<Ic n="person"/>,'Responsavel',130],['v',<Ic n="tag"/>,'Versao',90]].map(([col,icon,lbl,w])=>(
+                  {[['c',<Ic n="card"/>,'Card',110],['t',<Ic n="task"/>,'Tarefa',null],['s',<Ic n="status"/>,'Status',175],['r',<Ic n="person"/>,'Responsavel',130],['v',<Ic n="tag"/>,'Versao',90]].map(([col,icon,lbl,w])=>(
                     <th key={col} style={{...thSt(col),...(w?{width:w}:{})}} onClick={()=>toggleSort(col)}>
                       <span style={{display:'inline-flex',alignItems:'center',gap:5,color:'inherit'}}>{icon}<span>{lbl}</span> <SortIcon dir={sortCol===col?sortDir:null}/></span>
                     </th>
@@ -648,10 +649,10 @@ function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,ope
                         <td style={{padding:'9px 8px',borderBottom:'1px solid var(--border)',textAlign:'center',width:36}} onClick={e=>e.stopPropagation()}>
                           <input type="checkbox" checked={selected.has(task.id)} onChange={()=>toggleSel(task.id)} style={{cursor:'pointer',width:14,height:14,accentColor:'var(--accent)'}}/>
                         </td>
-                        <td style={{padding:'10px 12px',borderBottom:'1px solid var(--border)',background:bg,borderLeft:'2px solid '+(exp?(cfg.c||'var(--cyan)'):'transparent'),whiteSpace:'nowrap'}}>
-                          {task.c?<span style={{fontFamily:'monospace',fontSize:12,color:'var(--txt2)',background:'var(--bg)',padding:'2px 6px',borderRadius:4,border:'1px solid var(--border)',fontWeight:500,whiteSpace:'nowrap',display:'inline-block'}}>{task.c}</span>:<span style={{color:'var(--txt3)',fontSize:10}}>-</span>}
+                        <td style={{padding:'9px 12px',borderBottom:'1px solid var(--border)',background:bg,borderLeft:'2px solid '+(exp?(cfg.c||'var(--cyan)'):'transparent'),width:110,minWidth:100,overflow:'hidden'}}>
+                          {task.c?<span style={{fontFamily:'monospace',fontSize:11,color:'var(--txt2)',background:'var(--bg)',padding:'2px 5px',borderRadius:4,border:'1px solid var(--border)',fontWeight:500,whiteSpace:'nowrap',display:'inline-block'}}>{task.c}</span>:<span style={{color:'var(--txt3)',fontSize:10}}>-</span>}
                         </td>
-                        <td style={{padding:'11px 13px',borderBottom:'1px solid var(--border)',background:bg,fontSize:14,color:'var(--txt1)',maxWidth:460,lineHeight:1.5}}>{task.t}</td>
+                        <td style={{padding:'10px 12px',borderBottom:'1px solid var(--border)',background:bg,fontSize:13,color:'var(--txt1)',lineHeight:1.4}}>{task.t}</td>
                         <td style={{padding:'9px 11px',borderBottom:'1px solid var(--border)',background:bg}}><Badge s={task.s}/></td>
                         <td style={{padding:'11px 13px',borderBottom:'1px solid var(--border)',background:bg,fontSize:11}}>
                           {task.r?<div style={{display:'flex',alignItems:'center',gap:6}}>
