@@ -92,20 +92,22 @@ async function saveTasks(tasks){
 }
 
 async function loadStatusProduto(){
-  try{
-    const res=await fetch(SUPA_URL+'/rest/v1/status_produto?select=id,nome&order=id.asc',{headers:SUPA_HDR});
-    const rows=await res.json();
-    if(Array.isArray(rows)&&rows.length>0){
-      // Merge DB statuses with color config
-      const merged={};
-      rows.forEach(r=>{
-        merged[r.nome]=IS_CFG_BASE[r.nome]||{c:"#6B7280",bg:"rgba(107,114,128,.1)",dot:"#6B7280"};
-      });
-      IS_CFG=merged;
-      return rows.map(r=>r.nome);
-    }
-    return null;
-  }catch(e){console.error('loadStatusProduto',e);return null;}
+  const tableNames=['status%20produto','status_produto'];
+  for(const tbl of tableNames){
+    try{
+      const res=await fetch(SUPA_URL+'/rest/v1/'+tbl+'?select=id,nome&order=id.asc',{headers:SUPA_HDR});
+      if(!res.ok)continue;
+      const rows=await res.json();
+      if(Array.isArray(rows)&&rows.length>0){
+        const merged={};
+        rows.forEach(r=>{merged[r.nome]=IS_CFG_BASE[r.nome]||{c:"#6B7280",bg:"rgba(107,114,128,.1)",dot:"#6B7280"};});
+        window._iscfg=merged;
+        return rows.map(r=>r.nome);
+      }
+    }catch(e){continue;}
+  }
+  window._iscfg={...IS_CFG_BASE};
+  return Object.keys(IS_CFG_BASE);
 }
 
 async function loadResps(){
@@ -1044,7 +1046,7 @@ function Timeline({tasks,setTasks,iStatus={},setIStatus}){
                     <span style={{fontSize:10,fontWeight:700,color:'var(--txt1)',lineHeight:1.4,wordBreak:'break-word',overflowWrap:'break-word'}}>{grupo}</span>
                     {setIStatus&&<select value={iStatus[grupo]||''} onChange={e=>setIStatus(prev=>({...prev,[grupo]:e.target.value}))} style={{alignSelf:'flex-start',fontSize:9,fontWeight:600,padding:'1px 7px 1px 4px',borderRadius:99,border:'1px solid '+(iStatus[grupo]?getISCfg(iStatus[grupo]).c+'55':'var(--border)'),background:iStatus[grupo]?getISCfg(iStatus[grupo]).bg:'transparent',color:iStatus[grupo]?getISCfg(iStatus[grupo]).c:'var(--txt3)',cursor:'pointer',outline:'none',appearance:'none',WebkitAppearance:'none'}}>
                       <option value="">+ status</option>
-                      {Object.keys(IS_CFG_LIVE.current).map(s=><option key={s} value={s}>{s}</option>)}
+                      {(window._iscfg?Object.keys(window._iscfg):Object.keys(IS_CFG_BASE)).map(s=><option key={s} value={s}>{s}</option>)}
                     </select>}
                   </div>
                 </div>
