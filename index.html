@@ -1276,9 +1276,9 @@ function InitiativeManager({tasks,setTasks,iStatus={},setIStatus,onClose}){
   );
 }
 
-function HistoricoView({tasks,setTasks,openEdit}){
+function HistoricoView({tasks,setTasks,openEdit,iStatus,setIStatus,statusProduto,openBulkCreate,canEdit}){
   const[sv,setSv]=useState('board');
-  const done=useMemo(()=>tasks.filter(t=>DONE.includes(t.s)),[tasks]);
+  const done=tasks; // already filtered by AppMain (historicoTasks)
   return(
     <div>
       <div style={{padding:'11px 24px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:10,background:'rgba(16,185,129,.03)'}}>
@@ -1292,7 +1292,7 @@ function HistoricoView({tasks,setTasks,openEdit}){
           ))}
         </div>
       </div>
-      {sv==='board'?<BoardView tasks={done} setTasks={setTasks} openCreate={null} openEdit={openEdit}/>:<Timeline tasks={done} setTasks={setTasks}/>}
+      {sv==='board'?<BoardView tasks={done} setTasks={setTasks} openCreate={null} openEdit={openEdit} iStatus={iStatus} setIStatus={setIStatus} statusProduto={statusProduto} openBulkCreate={openBulkCreate}/>:<Timeline tasks={done} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus}/>}
     </div>
   );
 }
@@ -1724,7 +1724,7 @@ function AppMain({currentUser,onLogout}){
           </div>
         </div>
       </div>
-      {view==='board'?<BoardView tasks={boardTasks} setTasks={setTasks} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null} iStatus={iStatus} setIStatus={canEdit?setIStatus:null} openBulkCreate={canEdit?setBulkCreate:null} statusProduto={statusProduto}/>:view==='timeline'?<Timeline tasks={boardTasks} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus}/>:view==='backlog'?<BacklogView tasks={tasks} iStatus={iStatus} statusProduto={statusProduto} setIStatus={canEdit?setIStatus:null} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null}/>:<HistoricoView tasks={historicoTasks} setTasks={setTasks} openEdit={openEdit}/>}
+      {view==='board'?<BoardView tasks={boardTasks} setTasks={setTasks} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null} iStatus={iStatus} setIStatus={canEdit?setIStatus:null} openBulkCreate={canEdit?setBulkCreate:null} statusProduto={statusProduto}/>:view==='timeline'?<Timeline tasks={boardTasks} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus}/>:view==='backlog'?<BacklogView tasks={tasks} iStatus={iStatus} statusProduto={statusProduto} setIStatus={canEdit?setIStatus:null} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null}/>:<HistoricoView tasks={historicoTasks} setTasks={setTasks} openEdit={openEdit} iStatus={iStatus} setIStatus={canEdit?setIStatus:null} statusProduto={statusProduto} openBulkCreate={canEdit?setBulkCreate:null} canEdit={canEdit}/>}
       <Drawer open={drawerOpen} onClose={()=>setDrawerOpen(false)} onSave={handleSave} grupos={allG} allResp={[...new Set([...resps,...tasks.map(t=>t.r).filter(Boolean)])].sort((a,b)=>a.localeCompare(b,'pt-BR'))} editing={editing}/>
       {toast&&<Toast msg={toast} onDone={()=>setToast(null)}/>}
       {showIM&&<InitiativeManager tasks={tasks} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus} onClose={()=>setShowIM(false)}/>}
