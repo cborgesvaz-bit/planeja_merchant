@@ -178,18 +178,26 @@ const SC={"Em andamento":{c:"#0891B2",bg:"rgba(8,145,178,.1)",d:"#0891B2",p:true
 const PH={PRD:{lb:"PRD",col:"#047857",sl:"rgba(4,120,87,.75)",pr:6},QA:{lb:"Q.A",col:"#2563EB",sl:"rgba(37,99,235,.75)",pr:5},STG:{lb:"STG",col:"#B45309",sl:"rgba(180,83,9,.75)",pr:4},MR:{lb:"MR",col:"#7C3AED",sl:"rgba(124,58,237,.75)",pr:3},DEV:{lb:"Dev",col:"#0891B2",sl:"rgba(8,145,178,.75)",pr:2},BLOCKED:{lb:"Bloq.",col:"#DC2626",sl:"rgba(220,38,38,.75)",pr:1},CUSTOM:{lb:"?",col:"#6366F1",sl:"rgba(99,102,241,.75)",pr:0}};
 const DONE=["Finalizado","Entregue"];
 
+// Initiative status color config — names must match status_produto table exactly
 const IS_CFG_BASE={
-  "Discovery Produto":  {c:"#9333EA",bg:"rgba(147,51,234,.12)",dot:"#9333EA"},
-  "Discovery Tecnico":  {c:"#DB2777",bg:"rgba(219,39,119,.12)",dot:"#DB2777"},
-  "Discovery Técnico":  {c:"#DB2777",bg:"rgba(219,39,119,.12)",dot:"#DB2777"},
-  "Desenvolvimento":    {c:"#2563EB",bg:"rgba(37,99,235,.12)", dot:"#2563EB"},
-  "Homologação":        {c:"#D97706",bg:"rgba(217,119,6,.12)",  dot:"#D97706"},
-  "Homologacao":        {c:"#D97706",bg:"rgba(217,119,6,.12)",  dot:"#D97706"},
-  "Concluído":          {c:"#059669",bg:"rgba(5,150,105,.12)",  dot:"#059669"},
-  "Concluido":          {c:"#059669",bg:"rgba(5,150,105,.12)",  dot:"#059669"},
-  "Pausado":            {c:"#EA580C",bg:"rgba(234,88,12,.12)",  dot:"#EA580C"},
-  "Backlog":            {c:"#6B7280",bg:"rgba(107,114,128,.1)", dot:"#6B7280"},
+  "Discovery Produto":{c:"#9333EA",bg:"rgba(147,51,234,.12)",dot:"#9333EA"},
+  "Discovery Tecnico":{c:"#DB2777",bg:"rgba(219,39,119,.12)",dot:"#DB2777"},
+  "Desenvolvimento":  {c:"#2563EB",bg:"rgba(37,99,235,.12)", dot:"#2563EB"},
+  "Homologacao":      {c:"#D97706",bg:"rgba(217,119,6,.12)",  dot:"#D97706"},
+  "Concluido":        {c:"#059669",bg:"rgba(5,150,105,.12)",  dot:"#059669"},
+  "Pausado":          {c:"#EA580C",bg:"rgba(234,88,12,.12)",  dot:"#EA580C"},
+  "Backlog":          {c:"#6B7280",bg:"rgba(107,114,128,.1)", dot:"#6B7280"},
 };
+// Routing rules — which tab shows which initiative statuses
+const INIT_BACKLOG_S=["Backlog","Discovery Produto","Discovery Tecnico"];
+const INIT_BOARD_S=["Desenvolvimento","Homologacao","Pausado"];
+const INIT_DONE_S=["Concluido"];
+function initView(status){
+  if(!status||(!INIT_BACKLOG_S.includes(status)&&!INIT_BOARD_S.includes(status)&&!INIT_DONE_S.includes(status)))return'board';
+  if(INIT_DONE_S.includes(status))return'historico';
+  if(INIT_BACKLOG_S.includes(status))return'backlog';
+  return'board';
+}
 // Dynamic IS_CFG that merges DB statuses with base colors
 // Will be updated with DB data at runtime
 let IS_CFG={...IS_CFG_BASE};
@@ -1591,7 +1599,7 @@ function AppMain({currentUser,onLogout}){
   const[showRespMgr,setShowRespMgr]=useState(false);
   const[resps,setRespsLocal]=useState(DEFAULT_RESP);
   const[users,setUsers]=useState(DEFAULT_USERS);
-  const[statusProduto,setStatusProduto]=useState(Object.keys(IS_CFG_BASE));
+  const[statusProduto,setStatusProduto]=useState(['Backlog','Discovery Produto','Discovery Tecnico','Desenvolvimento','Homologacao','Pausado','Concluido']);
   const handleLogout=()=>{onLogout();};
 
   const[tasks,setTasks]=useState([]);
@@ -1630,6 +1638,9 @@ function AppMain({currentUser,onLogout}){
   useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('resps',resps),600);return()=>clearTimeout(t);},[resps,loaded]); // also syncs responsavel table
   useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('users',users),600);return()=>clearTimeout(t);},[users,loaded]);
   const active=useMemo(()=>tasks.filter(t=>!DONE.includes(t.s)),[tasks]);
+  // Tasks split by initiative status
+  const boardTasks=useMemo(()=>active.filter(t=>initView(iStatus[t.g])==='board'),[active,iStatus]);
+  const historicoTasks=useMemo(()=>tasks.filter(t=>DONE.includes(t.s)||initView(iStatus[t.g])==='historico'),[tasks,iStatus]);
   const allG=useMemo(()=>[...new Set(tasks.map(t=>t.g))].sort((a,b)=>a.localeCompare(b,'pt-BR')),[tasks]);
   const sCounts=useMemo(()=>tasks.reduce((a,t)=>{a[t.s]=(a[t.s]||0)+1;return a;},{}),[tasks]);
 
@@ -1663,7 +1674,7 @@ function AppMain({currentUser,onLogout}){
             <div>
               <div style={{fontSize:15,fontWeight:800,color:'var(--txt1)',letterSpacing:-.4}}>Planeja Merchant</div>
               <div style={{display:'flex',alignItems:'center',gap:8,marginTop:2,flexWrap:'wrap'}}>
-                <span style={{fontSize:11,color:'var(--txt3)'}}>{active.length} ativas - <span style={{color:'#34D399'}}>{tasks.filter(t=>DONE.includes(t.s)).length} concluidas</span></span>
+                <span style={{fontSize:11,color:'var(--txt3)'}}>{boardTasks.length} ativas - <span style={{color:'#34D399'}}>{tasks.filter(t=>DONE.includes(t.s)).length} concluidas</span></span>
                 {hasLocalData&&<div style={{display:'inline-flex',alignItems:'center',gap:6,padding:'2px 10px',borderRadius:99,background:'rgba(16,185,129,.1)',border:'1px solid rgba(16,185,129,.3)'}}>
                   <span style={{width:7,height:7,borderRadius:'50%',background:'#10B981',flexShrink:0}}/>
                   <span style={{fontSize:10,fontWeight:600,color:'#059669',whiteSpace:'nowrap'}}>Conectado ao Supabase</span>
@@ -1711,7 +1722,7 @@ function AppMain({currentUser,onLogout}){
           </div>
         </div>
       </div>
-      {view==='board'?<BoardView tasks={active} setTasks={setTasks} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null} iStatus={iStatus} setIStatus={canEdit?setIStatus:null} openBulkCreate={canEdit?setBulkCreate:null} statusProduto={statusProduto}/>:view==='timeline'?<Timeline tasks={active} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus}/>:view==='backlog'?<BacklogView tasks={active} iStatus={iStatus} statusProduto={statusProduto} setIStatus={canEdit?setIStatus:null} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null}/>:<HistoricoView tasks={tasks} setTasks={setTasks} openEdit={openEdit}/>}
+      {view==='board'?<BoardView tasks={boardTasks} setTasks={setTasks} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null} iStatus={iStatus} setIStatus={canEdit?setIStatus:null} openBulkCreate={canEdit?setBulkCreate:null} statusProduto={statusProduto}/>:view==='timeline'?<Timeline tasks={boardTasks} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus}/>:view==='backlog'?<BacklogView tasks={tasks} iStatus={iStatus} statusProduto={statusProduto} setIStatus={canEdit?setIStatus:null} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null}/>:<HistoricoView tasks={historicoTasks} setTasks={setTasks} openEdit={openEdit}/>}
       <Drawer open={drawerOpen} onClose={()=>setDrawerOpen(false)} onSave={handleSave} grupos={allG} allResp={[...new Set([...resps,...tasks.map(t=>t.r).filter(Boolean)])].sort((a,b)=>a.localeCompare(b,'pt-BR'))} editing={editing}/>
       {toast&&<Toast msg={toast} onDone={()=>setToast(null)}/>}
       {showIM&&<InitiativeManager tasks={tasks} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus} onClose={()=>setShowIM(false)}/>}
