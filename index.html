@@ -91,6 +91,23 @@ async function saveTasks(tasks){
   }catch(e){console.error('saveTasks',e);}
 }
 
+async function loadStatusProduto(){
+  try{
+    const res=await fetch(SUPA_URL+'/rest/v1/status_produto?select=id,nome&order=id.asc',{headers:SUPA_HDR});
+    const rows=await res.json();
+    if(Array.isArray(rows)&&rows.length>0){
+      // Merge DB statuses with color config
+      const merged={};
+      rows.forEach(r=>{
+        merged[r.nome]=IS_CFG_BASE[r.nome]||{c:"#6B7280",bg:"rgba(107,114,128,.1)",dot:"#6B7280"};
+      });
+      IS_CFG=merged;
+      return rows.map(r=>r.nome);
+    }
+    return null;
+  }catch(e){console.error('loadStatusProduto',e);return null;}
+}
+
 async function loadResps(){
   try{
     const res=await fetch(SUPA_URL+'/rest/v1/responsavel?select=id,nome&order=nome.asc',{headers:SUPA_HDR});
@@ -161,15 +178,24 @@ const SC={"Em andamento":{c:"#0891B2",bg:"rgba(8,145,178,.1)",d:"#0891B2",p:true
 const PH={PRD:{lb:"PRD",col:"#047857",sl:"rgba(4,120,87,.75)",pr:6},QA:{lb:"Q.A",col:"#2563EB",sl:"rgba(37,99,235,.75)",pr:5},STG:{lb:"STG",col:"#B45309",sl:"rgba(180,83,9,.75)",pr:4},MR:{lb:"MR",col:"#7C3AED",sl:"rgba(124,58,237,.75)",pr:3},DEV:{lb:"Dev",col:"#0891B2",sl:"rgba(8,145,178,.75)",pr:2},BLOCKED:{lb:"Bloq.",col:"#DC2626",sl:"rgba(220,38,38,.75)",pr:1},CUSTOM:{lb:"?",col:"#6366F1",sl:"rgba(99,102,241,.75)",pr:0}};
 const DONE=["Finalizado","Entregue"];
 
-const IS_CFG={
+const IS_CFG_BASE={
   "Discovery Produto":  {c:"#9333EA",bg:"rgba(147,51,234,.12)",dot:"#9333EA"},
+  "Discovery Tecnico":  {c:"#DB2777",bg:"rgba(219,39,119,.12)",dot:"#DB2777"},
   "Discovery Técnico":  {c:"#DB2777",bg:"rgba(219,39,119,.12)",dot:"#DB2777"},
   "Desenvolvimento":    {c:"#2563EB",bg:"rgba(37,99,235,.12)", dot:"#2563EB"},
   "Homologação":        {c:"#D97706",bg:"rgba(217,119,6,.12)",  dot:"#D97706"},
+  "Homologacao":        {c:"#D97706",bg:"rgba(217,119,6,.12)",  dot:"#D97706"},
   "Concluído":          {c:"#059669",bg:"rgba(5,150,105,.12)",  dot:"#059669"},
+  "Concluido":          {c:"#059669",bg:"rgba(5,150,105,.12)",  dot:"#059669"},
   "Pausado":            {c:"#EA580C",bg:"rgba(234,88,12,.12)",  dot:"#EA580C"},
   "Backlog":            {c:"#6B7280",bg:"rgba(107,114,128,.1)", dot:"#6B7280"},
 };
+// Dynamic IS_CFG that merges DB statuses with base colors
+// Will be updated with DB data at runtime
+let IS_CFG={...IS_CFG_BASE};
+function getISCfg(name){
+  return IS_CFG[name]||{c:"#6B7280",bg:"rgba(107,114,128,.1)",dot:"#6B7280"};
+}
 const PD={DEV:"Seguindo com o desenvolvimento",MR:"Liberado MR para validacao",STG:"Deploy em STG",QA:"Q.A em andamento",PRD:"Deploy em PRD",BLOCKED:"Bloqueado"};
 const SCY={asc:"desc",desc:null,null:"asc"};
 const avColor=n=>`hsl(${n.charCodeAt(0)*15%360},45%,32%)`;
@@ -545,7 +571,7 @@ function Drawer({open,onClose,onSave,grupos,allResp,editing}){
   );
 }
 
-function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,openBulkCreate}){
+function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,openBulkCreate,statusProduto=[]}){
   const[search,setSearch]=useState('');
   const[fStatus,setFStatus]=useState([]);
   const[fResp,setFResp]=useState([]);
@@ -733,9 +759,9 @@ function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,ope
                          <button onClick={()=>toggleGroupCollapse(grupo)} title={collapsedGroups.has(grupo)?"Expandir":"Recolher"} style={{background:'none',border:'none',color:'var(--txt3)',cursor:'pointer',padding:'3px',borderRadius:5,display:'flex',alignItems:'center',justifyContent:'center',transition:'all .2s',transform:collapsedGroups.has(grupo)?'rotate(-90deg)':'rotate(0deg)'}} onMouseOver={e=>e.currentTarget.style.color='var(--accent)'} onMouseOut={e=>e.currentTarget.style.color='var(--txt3)'}><Ic n="chevron" s={15} c="currentColor"/></button>
                          <span style={{fontSize:13,fontWeight:700,color:'var(--txt1)',letterSpacing:-.2,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',maxWidth:300}}>{grupo}</span>
                          <span style={{fontSize:10,color:'var(--txt3)',background:'var(--bg2)',border:'1px solid var(--border)',padding:'1px 8px',borderRadius:99,flexShrink:0,fontWeight:500}}>{gtasks.length} tarefa{gtasks.length!==1?'s':''}</span>
-                         <select value={iStatus[grupo]||''} onChange={e=>{if(setIStatus)setIStatus(prev=>({...prev,[grupo]:e.target.value}));}} style={{fontSize:11,fontWeight:600,padding:'3px 10px',borderRadius:99,border:'1px solid '+(IS_CFG[iStatus[grupo]]?IS_CFG[iStatus[grupo]].c+'55':'var(--border)'),background:IS_CFG[iStatus[grupo]]?IS_CFG[iStatus[grupo]].bg:'var(--bg2)',color:IS_CFG[iStatus[grupo]]?IS_CFG[iStatus[grupo]].c:'var(--txt3)',cursor:'pointer',outline:'none',flexShrink:0,maxWidth:180,minWidth:120}}>
+                         <select value={iStatus[grupo]||''} onChange={e=>{if(setIStatus)setIStatus(prev=>({...prev,[grupo]:e.target.value}));}} style={{fontSize:11,fontWeight:600,padding:'3px 10px',borderRadius:99,border:'1px solid '+(IS_CFG[iStatus[grupo]]?IS_CFG[iStatus[grupo]].c+'55':'var(--border)'),background:IS_CFG[iStatus[grupo]]?IS_CFG[iStatus[grupo]].bg:'var(--bg2)',color:getISCfg(iStatus[grupo]).c:'var(--txt3)',cursor:'pointer',outline:'none',flexShrink:0,maxWidth:180,minWidth:120}}>
                            <option value="">— Status —</option>
-                           {Object.keys(IS_CFG).map(s=><option key={s} value={s}>{s}</option>)}
+                           {statusProduto.map(s=><option key={s} value={s}>{s}</option>)}
                          </select>
                          <button onClick={()=>startRename(grupo)} title="Renomear" style={{background:'none',border:'none',color:'var(--txt3)',cursor:'pointer',padding:'3px',borderRadius:5,display:'flex',alignItems:'center',justifyContent:'center',transition:'color .12s'}} onMouseOver={e=>e.currentTarget.style.color='#B45309'} onMouseOut={e=>e.currentTarget.style.color='var(--txt3)'}><Ic n="edit" s={13} c="currentColor"/></button>
                          <button onClick={()=>setConfDel({type:'g',name:grupo})} title="Excluir iniciativa" style={{background:'none',border:'none',color:'var(--txt3)',cursor:'pointer',padding:'3px',borderRadius:5,display:'flex',alignItems:'center',justifyContent:'center',transition:'color .12s'}} onMouseOver={e=>e.currentTarget.style.color='#DC2626'} onMouseOut={e=>e.currentTarget.style.color='var(--txt3)'}><Ic n="trash" s={13} c="currentColor"/></button>
@@ -1008,9 +1034,9 @@ function Timeline({tasks,setTasks,iStatus={},setIStatus}){
                   <div style={{width:4,background:IS_CFG[iStatus[grupo]]?IS_CFG[iStatus[grupo]].c:'var(--border)',flexShrink:0}}/>
                   <div style={{flex:1,minWidth:0,padding:'5px 8px',display:'flex',flexDirection:'column',justifyContent:'center',gap:3}}>
                     <span style={{fontSize:10,fontWeight:700,color:'var(--txt1)',lineHeight:1.4,wordBreak:'break-word',overflowWrap:'break-word'}}>{grupo}</span>
-                    {setIStatus&&<select value={iStatus[grupo]||''} onChange={e=>setIStatus(prev=>({...prev,[grupo]:e.target.value}))} style={{alignSelf:'flex-start',fontSize:9,fontWeight:600,padding:'1px 7px 1px 4px',borderRadius:99,border:'1px solid '+(IS_CFG[iStatus[grupo]]?IS_CFG[iStatus[grupo]].c+'55':'var(--border)'),background:IS_CFG[iStatus[grupo]]?IS_CFG[iStatus[grupo]].bg:'transparent',color:IS_CFG[iStatus[grupo]]?IS_CFG[iStatus[grupo]].c:'var(--txt3)',cursor:'pointer',outline:'none',appearance:'none',WebkitAppearance:'none'}}>
+                    {setIStatus&&<select value={iStatus[grupo]||''} onChange={e=>setIStatus(prev=>({...prev,[grupo]:e.target.value}))} style={{alignSelf:'flex-start',fontSize:9,fontWeight:600,padding:'1px 7px 1px 4px',borderRadius:99,border:'1px solid '+(IS_CFG[iStatus[grupo]]?IS_CFG[iStatus[grupo]].c+'55':'var(--border)'),background:getISCfg(iStatus[grupo]).bg:'transparent',color:getISCfg(iStatus[grupo]).c:'var(--txt3)',cursor:'pointer',outline:'none',appearance:'none',WebkitAppearance:'none'}}>
                       <option value="">+ status</option>
-                      {Object.keys(IS_CFG).map(s=><option key={s} value={s}>{s}</option>)}
+                      {Object.keys(IS_CFG_LIVE.current).map(s=><option key={s} value={s}>{s}</option>)}
                     </select>}
                   </div>
                 </div>
@@ -1565,6 +1591,7 @@ function AppMain({currentUser,onLogout}){
   const[showRespMgr,setShowRespMgr]=useState(false);
   const[resps,setRespsLocal]=useState(DEFAULT_RESP);
   const[users,setUsers]=useState(DEFAULT_USERS);
+  const[statusProduto,setStatusProduto]=useState(Object.keys(IS_CFG_BASE));
   const handleLogout=()=>{onLogout();};
 
   const[tasks,setTasks]=useState([]);
@@ -1584,7 +1611,8 @@ function AppMain({currentUser,onLogout}){
   useEffect(()=>{
     (async()=>{
       try{
-        const[t,r,is,u]=await Promise.all([loadTasks(),loadResps(),dbGet('istatus'),dbGet('users')]);
+        const[t,r,is,u,sp]=await Promise.all([loadTasks(),loadResps(),dbGet('istatus'),dbGet('users'),loadStatusProduto()]);
+        if(Array.isArray(sp)&&sp.length>0)setStatusProduto(sp);
         const td=Array.isArray(t)&&t.length>0?t:T0;
         setTasks(td);
         setNextId(Math.max(...td.map(x=>x.id||0),0)+1);
@@ -1623,7 +1651,7 @@ function AppMain({currentUser,onLogout}){
     }
   };
 
-  const VIEWS=[['board','Board','B'],['timeline','Timeline','T'],['historico','Historico','H']];
+  const VIEWS=[['board','Board','B'],['timeline','Timeline','T'],['backlog','Backlog','B'],['historico','Historico','H']];
 
   if(!loaded)return <LoadingScreen/>;
   return(
@@ -1683,7 +1711,7 @@ function AppMain({currentUser,onLogout}){
           </div>
         </div>
       </div>
-      {view==='board'?<BoardView tasks={active} setTasks={setTasks} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null} iStatus={iStatus} setIStatus={canEdit?setIStatus:null} openBulkCreate={canEdit?setBulkCreate:null}/>:view==='timeline'?<Timeline tasks={active} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus}/>:<HistoricoView tasks={tasks} setTasks={setTasks} openEdit={openEdit}/>}
+      {view==='board'?<BoardView tasks={active} setTasks={setTasks} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null} iStatus={iStatus} setIStatus={canEdit?setIStatus:null} openBulkCreate={canEdit?setBulkCreate:null} statusProduto={statusProduto}/>:view==='timeline'?<Timeline tasks={active} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus}/>:view==='backlog'?<BacklogView tasks={active} iStatus={iStatus} statusProduto={statusProduto} setIStatus={canEdit?setIStatus:null} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null}/>:<HistoricoView tasks={tasks} setTasks={setTasks} openEdit={openEdit}/>}
       <Drawer open={drawerOpen} onClose={()=>setDrawerOpen(false)} onSave={handleSave} grupos={allG} allResp={[...new Set([...resps,...tasks.map(t=>t.r).filter(Boolean)])].sort((a,b)=>a.localeCompare(b,'pt-BR'))} editing={editing}/>
       {toast&&<Toast msg={toast} onDone={()=>setToast(null)}/>}
       {showIM&&<InitiativeManager tasks={tasks} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus} onClose={()=>setShowIM(false)}/>}
@@ -1807,6 +1835,76 @@ function ResponsavelManager({resps:initResps,onSave,onClose}){
           <button onClick={onClose} style={{padding:'8px 22px',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:8,color:'var(--txt2)',fontSize:12,fontWeight:600,cursor:'pointer'}}>Fechar</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+
+function BacklogView({tasks,iStatus,statusProduto,setIStatus,openCreate,openEdit}){
+  const backlogGrupos=useMemo(()=>{
+    const grupos=[...new Set(tasks.map(t=>t.g))];
+    return grupos
+      .filter(g=>!iStatus[g]||iStatus[g]==='Backlog')
+      .sort((a,b)=>{
+        const ta=tasks.find(t=>t.g===a),tb=tasks.find(t=>t.g===b);
+        return(ta?tn(ta.t):0)-(tb?tn(tb.t):0);
+      });
+  },[tasks,iStatus]);
+
+  const allTasks=tasks.filter(t=>backlogGrupos.includes(t.g));
+
+  return(
+    <div>
+      <div style={{padding:'14px 24px 12px',borderBottom:'1px solid var(--border)',background:'var(--bg1)',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:10}}>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <div style={{width:8,height:8,borderRadius:'50%',background:'#6B7280'}}/>
+          <span style={{fontSize:13,fontWeight:700,color:'var(--txt1)'}}>Backlog de Iniciativas</span>
+          <span style={{fontSize:11,color:'var(--txt3)',background:'var(--bg2)',border:'1px solid var(--border)',padding:'1px 9px',borderRadius:99}}>{backlogGrupos.length} iniciativa{backlogGrupos.length!==1?'s':''} · {allTasks.length} tarefa{allTasks.length!==1?'s':''}</span>
+        </div>
+        {openCreate&&<button onClick={openCreate} style={{padding:'6px 16px',background:'linear-gradient(135deg,var(--accent),var(--cyan))',border:'none',borderRadius:8,color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}}>+ Nova Tarefa</button>}
+      </div>
+
+      {backlogGrupos.length===0
+        ?<div style={{padding:'60px 24px',textAlign:'center',color:'var(--txt3)'}}>
+           <div style={{fontSize:32,marginBottom:12}}>✅</div>
+           <div style={{fontSize:14,fontWeight:600,color:'var(--txt2)'}}>Nenhuma iniciativa em Backlog</div>
+           <div style={{fontSize:12,marginTop:4}}>Todas as iniciativas têm status definido</div>
+         </div>
+        :<div style={{padding:'20px 24px',display:'flex',flexDirection:'column',gap:14}}>
+           {backlogGrupos.map(grupo=>{
+             const gtasks=tasks.filter(t=>t.g===grupo);
+             const smap={};
+             gtasks.forEach(t=>{smap[t.s]=(smap[t.s]||0)+1;});
+             const SCOL={"Em andamento":"#0891B2","Bloqueado":"#DC2626","Nao Iniciado":"#6B7280","Aguard. Deploy PRD":"#B45309","Paralisado":"#EA580C","Finalizado":"#059669","Entregue":"#047857","Deploy PRD":"#0369A1","Pendente":"#7C3AED"};
+             return(
+               <div key={grupo} style={{background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:12,overflow:'hidden',boxShadow:'0 1px 4px rgba(0,0,0,.06)'}}>
+                 <div style={{padding:'14px 18px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',gap:10,background:'var(--bg2)'}}>
+                   <div style={{flex:1}}>
+                     <div style={{fontSize:14,fontWeight:700,color:'var(--txt1)'}}>{grupo}</div>
+                     <div style={{display:'flex',height:4,borderRadius:4,overflow:'hidden',marginTop:6,gap:1,maxWidth:200}}>
+                       {Object.entries(smap).map(([s,n])=><div key={s} title={s+': '+n} style={{flex:n,background:SCOL[s]||'#9CA3AF',minWidth:2}}/>)}
+                     </div>
+                   </div>
+                   <span style={{fontSize:11,color:'var(--txt3)',background:'var(--bg)',border:'1px solid var(--border)',padding:'2px 9px',borderRadius:99}}>{gtasks.length} tarefa{gtasks.length!==1?'s':''}</span>
+                   {setIStatus&&<select value={iStatus[grupo]||'Backlog'} onChange={e=>setIStatus(prev=>({...prev,[grupo]:e.target.value}))}
+                     style={{fontSize:11,fontWeight:600,padding:'4px 10px',borderRadius:7,border:'1px solid rgba(107,114,128,.3)',background:'rgba(107,114,128,.08)',color:'#6B7280',cursor:'pointer',outline:'none'}}>
+                     {statusProduto.map(s=><option key={s} value={s}>{s}</option>)}
+                   </select>}
+                 </div>
+                 <div style={{padding:'10px 18px',display:'flex',flexWrap:'wrap',gap:6}}>
+                   {gtasks.slice(0,6).map(t=>(
+                     <div key={t.id} onClick={()=>openEdit&&openEdit(t,{stopPropagation:()=>{}})} style={{padding:'5px 10px',borderRadius:6,background:'var(--bg)',border:'1px solid var(--border)',fontSize:11,color:'var(--txt2)',cursor:openEdit?'pointer':'default',display:'flex',alignItems:'center',gap:6,maxWidth:260}} title={t.t}>
+                       <span style={{width:6,height:6,borderRadius:'50%',background:SCOL[t.s]||'#9CA3AF',flexShrink:0}}/>
+                       <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.t}</span>
+                     </div>
+                   ))}
+                   {gtasks.length>6&&<span style={{fontSize:11,color:'var(--txt3)',padding:'5px 0'}}>+{gtasks.length-6} mais...</span>}
+                 </div>
+               </div>
+             );
+           })}
+         </div>
+      }
     </div>
   );
 }
