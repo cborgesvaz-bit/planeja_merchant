@@ -35,7 +35,7 @@ const SUPA_URL='https://vlkvaumpgpisbokisbis.supabase.co';
 const SUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZsa3ZhdW1wZ3Bpc2Jva2lzYmlzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUxOTAyNzksImV4cCI6MjEwMDc2NjI3OX0.yt_d5YY99b98NIVwGkWTqWEbN49XPaIHOnJOFbZudTE';
 const SUPA_HDR={apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'application/json'};
 
-// Map app task object ↔ Supabase row
+// Map app task object ↔ Supabase row (uses actual DB column names)
 const taskToRow=t=>({
   id:t.id,
   'Iniciativa':t.g||'',
@@ -43,9 +43,9 @@ const taskToRow=t=>({
   'Tarefa':t.t||'',
   'Status':t.s||'Nao Iniciado',
   'Responsavel':t.r||'',
-  versao:t.v||'',
-  mr_links:t.mr||'',
-  acompanhamento:t.a||'',
+  'Versao':t.v||'',
+  'Acompanhamento':t.a||'',
+  'Link MR':t.mr||'',
   plan_data:t.plan||'',
 });
 const rowToTask=r=>({
@@ -55,9 +55,9 @@ const rowToTask=r=>({
   t:r['Tarefa']||'',
   s:r['Status']||'Nao Iniciado',
   r:r['Responsavel']||'',
-  v:r.versao||'',
-  mr:r.mr_links||'',
-  a:r.acompanhamento||'',
+  v:r['Versao']||r.versao||'',
+  a:r['Acompanhamento']||r.acompanhamento||'',
+  mr:r['Link MR']||r.mr_links||'',
   plan:r.plan_data||'',
 });
 
@@ -89,6 +89,41 @@ async function saveTasks(tasks){
       });
     }
   }catch(e){console.error('saveTasks',e);}
+}
+
+async function loadResps(){
+  try{
+    const res=await fetch(SUPA_URL+'/rest/v1/responsavel?select=id,nome&order=nome.asc',{headers:SUPA_HDR});
+    const rows=await res.json();
+    return Array.isArray(rows)&&rows.length>0?rows.map(r=>r.nome):null;
+  }catch(e){console.error('loadResps',e);return null;}
+}
+
+async function saveResp(nome){
+  try{
+    await fetch(SUPA_URL+'/rest/v1/responsavel',{
+      method:'POST',
+      headers:{...SUPA_HDR,Prefer:'resolution=merge-duplicates'},
+      body:JSON.stringify({nome}),
+    });
+  }catch(e){console.error('saveResp',e);}
+}
+
+async function deleteResp(nome){
+  try{
+    await fetch(SUPA_URL+'/rest/v1/responsavel?nome=eq.'+encodeURIComponent(nome),{
+      method:'DELETE',headers:SUPA_HDR,
+    });
+  }catch(e){console.error('deleteResp',e);}
+}
+
+async function updateResp(oldNome,newNome){
+  try{
+    await fetch(SUPA_URL+'/rest/v1/responsavel?nome=eq.'+encodeURIComponent(oldNome),{
+      method:'PATCH',headers:SUPA_HDR,
+      body:JSON.stringify({nome:newNome}),
+    });
+  }catch(e){console.error('updateResp',e);}
 }
 
 async function dbGet(key){
@@ -1549,7 +1584,7 @@ function AppMain({currentUser,onLogout}){
   useEffect(()=>{
     (async()=>{
       try{
-        const[t,r,is,u]=await Promise.all([loadTasks(),dbGet('resps'),dbGet('istatus'),dbGet('users')]);
+        const[t,r,is,u]=await Promise.all([loadTasks(),loadResps(),dbGet('istatus'),dbGet('users')]);
         const td=Array.isArray(t)&&t.length>0?t:T0;
         setTasks(td);
         setNextId(Math.max(...td.map(x=>x.id||0),0)+1);
@@ -1564,7 +1599,7 @@ function AppMain({currentUser,onLogout}){
   // Save to Supabase (debounced)
   useEffect(()=>{if(!loaded||!tasks.length)return;const t=setTimeout(()=>saveTasks(tasks),600);return()=>clearTimeout(t);},[tasks,loaded]);
   useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('istatus',iStatus),600);return()=>clearTimeout(t);},[iStatus,loaded]);
-  useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('resps',resps),600);return()=>clearTimeout(t);},[resps,loaded]);
+  useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('resps',resps),600);return()=>clearTimeout(t);},[resps,loaded]); // also syncs responsavel table
   useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('users',users),600);return()=>clearTimeout(t);},[users,loaded]);
   const active=useMemo(()=>tasks.filter(t=>!DONE.includes(t.s)),[tasks]);
   const allG=useMemo(()=>[...new Set(tasks.map(t=>t.g))].sort((a,b)=>a.localeCompare(b,'pt-BR')),[tasks]);
@@ -1673,13 +1708,21 @@ function ResponsavelManager({resps:initResps,onSave,onClose}){
   const[err,setErr]=useState('');
   const inputRef=useRef(null);
 
-  const persist=r=>{const s=[...r].sort((a,b)=>a.localeCompare(b,'pt-BR'));setRespsState(s);if(onSave)onSave(s);};
+  const persist=async(newList,{added,removed,updated}={})=>{
+    const s=[...newList].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+    setRespsState(s);if(onSave)onSave(s);
+    try{
+      if(added)await saveResp(added);
+      if(removed)await deleteResp(removed);
+      if(updated)await updateResp(updated.old,updated.new);
+    }catch(e){console.error('persist resp',e);}
+  };
 
   const add=()=>{
     const n=newName.trim();
     if(!n){setErr('Nome obrigatório');return;}
     if(resps.some(r=>r.toLowerCase()===n.toLowerCase())){setErr('Já cadastrado');return;}
-    persist([...resps,n]);setNewName('');setErr('');
+    persist([...resps,n],{added:n});setNewName('');setErr('');
   };
 
   const commitEdit=()=>{
@@ -1687,10 +1730,10 @@ function ResponsavelManager({resps:initResps,onSave,onClose}){
     const n=editing.draft.trim();
     if(!n){setEditing(null);return;}
     if(resps.some((r,i)=>r.toLowerCase()===n.toLowerCase()&&i!==editing.idx)){setEditing(e=>({...e,err:'Já cadastrado'}));return;}
-    const upd=[...resps];upd[editing.idx]=n;persist(upd);setEditing(null);
+    const upd=[...resps];upd[editing.idx]=n;persist(upd,{updated:{old:resps[editing.idx],new:n}});setEditing(null);
   };
 
-  const del=idx=>{persist(resps.filter((_,i)=>i!==idx));setConfirmDel(null);};
+  const del=idx=>{const nome=resps[idx];persist(resps.filter((_,i)=>i!==idx),{removed:nome});setConfirmDel(null);};
 
   const ist={background:'var(--bg)',border:'1px solid var(--border)',borderRadius:8,color:'var(--txt1)',fontSize:13,padding:'7px 11px',outline:'none',flex:1};
 
