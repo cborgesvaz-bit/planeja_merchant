@@ -207,6 +207,20 @@ function getISCfg(name){
   return IS_CFG[name]||{c:"#6B7280",bg:"rgba(107,114,128,.1)",dot:"#6B7280"};
 }
 const PD={DEV:"Seguindo com o desenvolvimento",MR:"Liberado MR para validacao",STG:"Deploy em STG",QA:"Q.A em andamento",PRD:"Deploy em PRD",BLOCKED:"Bloqueado"};
+// Tipo do item de trabalho (Epico / Historia / Tarefa)
+const TIPO_CFG={
+  "Epico":{c:"#7C3AED",bg:"rgba(124,58,237,.12)",lb:"Épico"},
+  "Historia":{c:"#2563EB",bg:"rgba(37,99,235,.12)",lb:"História"},
+  "Tarefa":{c:"#6B7280",bg:"rgba(107,114,128,.1)",lb:"Tarefa"},
+};
+function TipoBadge({tipo}){
+  const cfg=TIPO_CFG[tipo]||TIPO_CFG.Tarefa;
+  return <span style={{display:'inline-flex',alignItems:'center',padding:'2px 7px',borderRadius:5,background:cfg.bg,color:cfg.c,fontSize:9,fontWeight:700,textTransform:'uppercase',letterSpacing:.4,whiteSpace:'nowrap'}}>{cfg.lb}</span>;
+}
+// Riscos — severidade/status
+const RISK_SEV={"Baixa":{c:"#059669",bg:"rgba(5,150,105,.1)"},"Media":{c:"#B45309",bg:"rgba(180,83,9,.1)"},"Alta":{c:"#DC2626",bg:"rgba(220,38,38,.1)"}};
+const RISK_STATUS={"Ativo":{c:"#DC2626",bg:"rgba(220,38,38,.1)"},"Mitigado":{c:"#0891B2",bg:"rgba(8,145,178,.1)"},"Resolvido":{c:"#059669",bg:"rgba(5,150,105,.1)"}};
+const DEP_TIPO={"Bloqueia":{c:"#DC2626",bg:"rgba(220,38,38,.1)"},"Aguarda":{c:"#B45309",bg:"rgba(180,83,9,.1)"},"Relacionada":{c:"#6B7280",bg:"rgba(107,114,128,.1)"}};
 const SCY={asc:"desc",desc:null,null:"asc"};
 const avColor=n=>`hsl(${n.charCodeAt(0)*15%360},45%,32%)`;
 const tn=t=>{const m=t.match(/^(\d+)\.(\d+)/);return m?+m[1]*10000+ +m[2]:999999;};
@@ -392,10 +406,10 @@ function Toast({msg,onDone}){
   </div>;
 }
 
-function Drawer({open,onClose,onSave,grupos,allResp,editing}){
+function Drawer({open,onClose,onSave,grupos,allResp,editing,tipos={}}){
   const preGroup=editing&&editing._preGroup?editing._preGroup:null;
   const isEdit=Boolean(editing)&&!preGroup;
-  const blank=()=>({t:'',c:'',v:'',s:'Nao Iniciado',r:'',g:preGroup||'',ng:''});
+  const blank=()=>({t:'',c:'',v:'',s:'Nao Iniciado',r:'',g:preGroup||'',ng:'',tipo:'Tarefa'});
   const[form,setForm]=useState(blank());
   const[gmode,setGmode]=useState('ex');
   const[mrList,setMrList]=useState(['']);
@@ -410,10 +424,10 @@ function Drawer({open,onClose,onSave,grupos,allResp,editing}){
     if(!open)return;
     setErrs({});setTab('d');
     if(preGroup){
-      setForm({t:'',c:'',v:'',s:'Nao Iniciado',r:'',g:preGroup,ng:''});
+      setForm({t:'',c:'',v:'',s:'Nao Iniciado',r:'',g:preGroup,ng:'',tipo:'Tarefa'});
       setGmode('ex');setMrList(['']);setHist('');setEntry('');
     }else if(isEdit){
-      setForm({t:editing.t,c:editing.c,v:editing.v,s:editing.s,r:editing.r,g:editing.g,ng:''});
+      setForm({t:editing.t,c:editing.c,v:editing.v,s:editing.s,r:editing.r,g:editing.g,ng:'',tipo:tipos[editing.id]||'Tarefa'});
       setGmode('ex');setMrList(editing.mr?editing.mr.split('\n').filter(Boolean):['']);
       setHist(editing.a||'');setEntry('');
     }else{setForm(blank());setGmode('ex');setMrList(['']);setHist('');setEntry('');}
@@ -488,6 +502,15 @@ function Drawer({open,onClose,onSave,grupos,allResp,editing}){
         <div style={{flex:1,overflowY:'auto',padding:'20px 22px'}}>
           {tab==='d'&&(
             <React.Fragment>
+              <div style={{marginBottom:16}}>
+                <Lbl c="Tipo"/>
+                <div style={{display:'flex',gap:6}}>
+                  {Object.keys(TIPO_CFG).map(tp=>{
+                    const cfg=TIPO_CFG[tp];const active=form.tipo===tp;
+                    return <button key={tp} type="button" onClick={()=>set('tipo',tp)} style={{flex:1,padding:'7px 0',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer',border:'1px solid '+(active?cfg.c+'55':'var(--border)'),background:active?cfg.bg:'transparent',color:active?cfg.c:'var(--txt2)'}}>{cfg.lb}</button>;
+                  })}
+                </div>
+              </div>
               <div style={{marginBottom:16}}>
                 <Lbl c="Iniciativa" req err={errs.g||errs.ng}/>
                 {!isEdit&&<div style={{display:'flex',gap:6,marginBottom:7}}>
@@ -581,7 +604,7 @@ function Drawer({open,onClose,onSave,grupos,allResp,editing}){
   );
 }
 
-function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,openBulkCreate,statusProduto=[]}){
+function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,openBulkCreate,statusProduto=[],tipos={}}){
   const[search,setSearch]=useState('');
   const[fStatus,setFStatus]=useState([]);
   const[fResp,setFResp]=useState([]);
@@ -817,7 +840,11 @@ function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,ope
                         <td style={{padding:'9px 12px',borderBottom:'1px solid var(--border)',background:bg,borderLeft:'2px solid '+(exp?(cfg.c||'var(--cyan)'):'transparent'),width:110,minWidth:100,overflow:'hidden'}}>
                           {task.c?<span style={{fontFamily:'monospace',fontSize:11,color:'var(--txt2)',background:'var(--bg)',padding:'2px 5px',borderRadius:4,border:'1px solid var(--border)',fontWeight:500,whiteSpace:'nowrap',display:'inline-block'}}>{task.c}</span>:<span style={{color:'var(--txt3)',fontSize:10}}>-</span>}
                         </td>
-                        <td style={{padding:'10px 12px',borderBottom:'1px solid var(--border)',background:bg,fontSize:13,color:'var(--txt1)',lineHeight:1.4}}>{task.t}</td>
+                        <td style={{padding:'10px 12px',borderBottom:'1px solid var(--border)',background:bg,fontSize:13,color:'var(--txt1)',lineHeight:1.4}}>
+                          <div style={{display:'flex',alignItems:'center',gap:7,flexWrap:'wrap'}}>
+                            <TipoBadge tipo={tipos[task.id]}/><span>{task.t}</span>
+                          </div>
+                        </td>
                         <td style={{padding:'9px 11px',borderBottom:'1px solid var(--border)',background:bg}}><Badge s={task.s}/></td>
                         <td style={{padding:'11px 13px',borderBottom:'1px solid var(--border)',background:bg,fontSize:11}}>
                           {task.r?<div style={{display:'flex',alignItems:'center',gap:6}}>
@@ -1594,6 +1621,229 @@ function UserManager({currentUser,users,setUsers,onClose}){
   );
 }
 
+function KpiCard({label,value,sub,color}){
+  return(
+    <div style={{background:'#fff',border:'1px solid var(--border)',borderRadius:12,padding:'16px 18px',flex:'1 1 180px',boxShadow:'0 1px 4px rgba(0,0,0,.05)'}}>
+      <div style={{fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8,marginBottom:8}}>{label}</div>
+      <div style={{fontSize:28,fontWeight:800,color:color||'var(--txt1)',lineHeight:1}}>{value}</div>
+      {sub&&<div style={{fontSize:11,color:'var(--txt3)',marginTop:6}}>{sub}</div>}
+    </div>
+  );
+}
+function BarRow({label,n,total,color}){
+  const pct=total?Math.round(n/total*100):0;
+  return(
+    <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:9}}>
+      <div style={{width:150,flexShrink:0,fontSize:11,color:'var(--txt2)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{label}</div>
+      <div style={{flex:1,height:8,background:'var(--bg2)',borderRadius:99,overflow:'hidden'}}>
+        <div style={{width:pct+'%',height:'100%',background:color||'var(--accent)',borderRadius:99}}/>
+      </div>
+      <div style={{width:34,textAlign:'right',fontSize:11,fontWeight:700,color:'var(--txt1)',flexShrink:0}}>{n}</div>
+    </div>
+  );
+}
+function DashboardView({tasks,iStatus={},riscos=[],deps=[]}){
+  const total=tasks.length;
+  const done=tasks.filter(t=>DONE.includes(t.s));
+  const active=tasks.filter(t=>!DONE.includes(t.s));
+  const bloqueadas=tasks.filter(t=>t.s==='Bloqueado').length;
+  const statusCounts=useMemo(()=>{const m={};tasks.forEach(t=>{m[t.s]=(m[t.s]||0)+1;});return m;},[tasks]);
+  const initStatusCounts=useMemo(()=>{
+    const grupos=[...new Set(tasks.map(t=>t.g))];
+    const m={};grupos.forEach(g=>{const s=iStatus[g]||'Backlog';m[s]=(m[s]||0)+1;});return m;
+  },[tasks,iStatus]);
+  const now=new Date();
+  const entregasMes=useMemo(()=>{
+    return done.filter(t=>{
+      if(!t.a)return false;
+      return t.a.split('\n').some(line=>{
+        const m=line.match(/^(\d{1,2})\/(\d{1,2})/);
+        if(!m)return false;
+        if(!/deploy em prd/i.test(line))return false;
+        return(+m[2]-1)===now.getMonth();
+      });
+    }).length;
+  },[done]);
+  const riscosAtivos=riscos.filter(r=>r.status==='Ativo');
+  const riscosAltos=riscosAtivos.filter(r=>r.severidade==='Alta');
+  const respCounts=useMemo(()=>{const m={};active.forEach(t=>{if(t.r)m[t.r]=(m[t.r]||0)+1;});return m;},[active]);
+
+  return(
+    <div style={{padding:'22px 24px 48px',maxWidth:1280,margin:'0 auto'}}>
+      <div style={{display:'flex',gap:14,flexWrap:'wrap',marginBottom:24}}>
+        <KpiCard label="Tarefas ativas" value={active.length} sub={total+' no total'} color="var(--accent)"/>
+        <KpiCard label="Concluídas" value={done.length} sub="Finalizado + Entregue" color="#059669"/>
+        <KpiCard label="Bloqueadas" value={bloqueadas} sub="Requerem atenção" color="#DC2626"/>
+        <KpiCard label="Entregas no mês" value={entregasMes} sub="Deploy em PRD" color="#0369A1"/>
+        <KpiCard label="Riscos ativos" value={riscosAtivos.length} sub={riscosAltos.length+' de severidade alta'} color={riscosAltos.length?'#DC2626':'#6B7280'}/>
+        <KpiCard label="Dependências mapeadas" value={deps.length} color="#7C3AED"/>
+      </div>
+
+      <div style={{display:'flex',gap:20,flexWrap:'wrap'}}>
+        <div style={{flex:'1 1 380px',background:'#fff',border:'1px solid var(--border)',borderRadius:12,padding:'18px 20px'}}>
+          <div style={{fontSize:12,fontWeight:700,color:'var(--txt1)',marginBottom:14}}>Tarefas por status</div>
+          {Object.entries(statusCounts).sort((a,b)=>b[1]-a[1]).map(([s,n])=>(
+            <BarRow key={s} label={s} n={n} total={total} color={(SC[s]&&SC[s].c)||'#9CA3AF'}/>
+          ))}
+        </div>
+        <div style={{flex:'1 1 380px',background:'#fff',border:'1px solid var(--border)',borderRadius:12,padding:'18px 20px'}}>
+          <div style={{fontSize:12,fontWeight:700,color:'var(--txt1)',marginBottom:14}}>Iniciativas por status</div>
+          {Object.entries(initStatusCounts).sort((a,b)=>b[1]-a[1]).map(([s,n])=>(
+            <BarRow key={s} label={s} n={n} total={Object.values(initStatusCounts).reduce((a,b)=>a+b,0)} color={getISCfg(s).c}/>
+          ))}
+        </div>
+        <div style={{flex:'1 1 380px',background:'#fff',border:'1px solid var(--border)',borderRadius:12,padding:'18px 20px'}}>
+          <div style={{fontSize:12,fontWeight:700,color:'var(--txt1)',marginBottom:14}}>Carga por responsável (ativas)</div>
+          {Object.keys(respCounts).length===0
+            ?<div style={{fontSize:11,color:'var(--txt3)'}}>Nenhuma tarefa atribuída.</div>
+            :Object.entries(respCounts).sort((a,b)=>b[1]-a[1]).map(([r,n])=>(
+              <BarRow key={r} label={r} n={n} total={active.length} color="var(--cyan)"/>
+            ))}
+        </div>
+        <div style={{flex:'1 1 380px',background:'#fff',border:'1px solid var(--border)',borderRadius:12,padding:'18px 20px'}}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
+            <div style={{fontSize:12,fontWeight:700,color:'var(--txt1)'}}>Riscos em aberto</div>
+            <span style={{fontSize:10,color:'var(--txt3)'}}>{riscosAtivos.length} ativo{riscosAtivos.length!==1?'s':''}</span>
+          </div>
+          {riscosAtivos.length===0
+            ?<div style={{fontSize:11,color:'var(--txt3)'}}>Nenhum risco ativo mapeado.</div>
+            :riscosAtivos.slice(0,6).map(r=>(
+              <div key={r.id} style={{display:'flex',alignItems:'center',gap:8,padding:'7px 0',borderBottom:'1px solid var(--border)'}}>
+                <span style={{width:7,height:7,borderRadius:'50%',background:(RISK_SEV[r.severidade]||RISK_SEV.Media).c,flexShrink:0}}/>
+                <span style={{fontSize:12,color:'var(--txt1)',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.descricao}</span>
+                <span style={{fontSize:10,fontWeight:700,color:(RISK_SEV[r.severidade]||RISK_SEV.Media).c}}>{r.severidade}</span>
+              </div>
+            ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DependenciasRiscosView({tasks,deps,setDeps,riscos,setRiscos,allG=[],canEdit}){
+  const[tab,setTab]=useState('dep');
+  const[form,setForm]=useState(null); // {kind:'dep'|'risco', data:{...}} while editing/creating
+  const ist={width:'100%',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:8,color:'var(--txt1)',fontSize:13,padding:'8px 11px',outline:'none'};
+
+  const newDep=()=>setForm({kind:'dep',data:{id:Date.now(),origem:allG[0]||'',destino:allG[0]||'',tipo:'Bloqueia',obs:''}});
+  const newRisco=()=>setForm({kind:'risco',data:{id:Date.now(),descricao:'',iniciativa:allG[0]||'',severidade:'Media',status:'Ativo',mitigacao:''}});
+
+  const save=()=>{
+    if(!form)return;
+    const{kind,data}=form;
+    if(kind==='dep'){
+      if(!data.origem||!data.destino)return;
+      setDeps(prev=>{const ex=prev.some(d=>d.id===data.id);return ex?prev.map(d=>d.id===data.id?data:d):[...prev,data];});
+    }else{
+      if(!data.descricao.trim())return;
+      setRiscos(prev=>{const ex=prev.some(r=>r.id===data.id);return ex?prev.map(r=>r.id===data.id?data:r):[...prev,data];});
+    }
+    setForm(null);
+  };
+  const delDep=id=>setDeps(prev=>prev.filter(d=>d.id!==id));
+  const delRisco=id=>setRiscos(prev=>prev.filter(r=>r.id!==id));
+
+  const Modal=()=>{
+    if(!form)return null;
+    const{kind,data}=form;
+    const set=(k,v)=>setForm(f=>({...f,data:{...f.data,[k]:v}}));
+    return(
+      <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.5)',zIndex:150,display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={()=>setForm(null)}>
+        <div onClick={e=>e.stopPropagation()} style={{background:'#fff',border:'1px solid var(--border)',borderRadius:12,width:'min(460px,100%)',boxShadow:'0 12px 48px rgba(0,0,0,.15)'}}>
+          <div style={{padding:'18px 22px',borderBottom:'1px solid var(--border)'}}>
+            <div style={{fontSize:15,fontWeight:700,color:'var(--txt1)'}}>{kind==='dep'?'Dependência entre iniciativas':'Risco'}</div>
+          </div>
+          <div style={{padding:'20px 22px',display:'flex',flexDirection:'column',gap:14}}>
+            {kind==='dep'?(
+              <React.Fragment>
+                <div><div style={{fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8,marginBottom:5}}>Origem</div>
+                  <select value={data.origem} onChange={e=>set('origem',e.target.value)} style={ist}>{allG.map(g=><option key={g} value={g}>{g}</option>)}</select></div>
+                <div><div style={{fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8,marginBottom:5}}>Destino</div>
+                  <select value={data.destino} onChange={e=>set('destino',e.target.value)} style={ist}>{allG.map(g=><option key={g} value={g}>{g}</option>)}</select></div>
+                <div><div style={{fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8,marginBottom:5}}>Tipo</div>
+                  <select value={data.tipo} onChange={e=>set('tipo',e.target.value)} style={ist}>{Object.keys(DEP_TIPO).map(t=><option key={t} value={t}>{t}</option>)}</select></div>
+                <div><div style={{fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8,marginBottom:5}}>Observação</div>
+                  <textarea value={data.obs} onChange={e=>set('obs',e.target.value)} rows={3} style={{...ist,resize:'vertical'}}/></div>
+              </React.Fragment>
+            ):(
+              <React.Fragment>
+                <div><div style={{fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8,marginBottom:5}}>Descrição</div>
+                  <textarea value={data.descricao} onChange={e=>set('descricao',e.target.value)} rows={2} style={{...ist,resize:'vertical'}}/></div>
+                <div><div style={{fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8,marginBottom:5}}>Iniciativa relacionada</div>
+                  <select value={data.iniciativa} onChange={e=>set('iniciativa',e.target.value)} style={ist}><option value="">—</option>{allG.map(g=><option key={g} value={g}>{g}</option>)}</select></div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+                  <div><div style={{fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8,marginBottom:5}}>Severidade</div>
+                    <select value={data.severidade} onChange={e=>set('severidade',e.target.value)} style={ist}>{Object.keys(RISK_SEV).map(s=><option key={s} value={s}>{s}</option>)}</select></div>
+                  <div><div style={{fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8,marginBottom:5}}>Status</div>
+                    <select value={data.status} onChange={e=>set('status',e.target.value)} style={ist}>{Object.keys(RISK_STATUS).map(s=><option key={s} value={s}>{s}</option>)}</select></div>
+                </div>
+                <div><div style={{fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8,marginBottom:5}}>Mitigação</div>
+                  <textarea value={data.mitigacao} onChange={e=>set('mitigacao',e.target.value)} rows={2} style={{...ist,resize:'vertical'}}/></div>
+              </React.Fragment>
+            )}
+          </div>
+          <div style={{padding:'14px 22px',borderTop:'1px solid var(--border)',display:'flex',gap:8,justifyContent:'flex-end'}}>
+            <button onClick={()=>setForm(null)} style={{padding:'7px 16px',background:'transparent',border:'1px solid var(--border)',borderRadius:8,color:'var(--txt2)',fontSize:12,fontWeight:600,cursor:'pointer'}}>Cancelar</button>
+            <button onClick={save} style={{padding:'7px 20px',background:'linear-gradient(135deg,var(--accent),var(--cyan))',border:'none',borderRadius:8,color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}}>Salvar</button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return(
+    <div style={{padding:'20px 24px 48px'}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16,flexWrap:'wrap',gap:10}}>
+        <div style={{display:'flex',gap:6,background:'var(--bg)',border:'1px solid var(--border2)',borderRadius:9,padding:3}}>
+          <button onClick={()=>setTab('dep')} style={{padding:'6px 14px',borderRadius:7,border:'none',fontSize:12,fontWeight:600,cursor:'pointer',background:tab==='dep'?'#EEF2FF':'transparent',color:tab==='dep'?'var(--accent)':'var(--txt2)'}}>Dependências ({deps.length})</button>
+          <button onClick={()=>setTab('risco')} style={{padding:'6px 14px',borderRadius:7,border:'none',fontSize:12,fontWeight:600,cursor:'pointer',background:tab==='risco'?'#FEF2F2':'transparent',color:tab==='risco'?'#DC2626':'var(--txt2)'}}>Riscos ({riscos.length})</button>
+        </div>
+        {canEdit&&<button onClick={tab==='dep'?newDep:newRisco} style={{padding:'7px 16px',background:'linear-gradient(135deg,var(--accent),var(--cyan))',border:'none',borderRadius:99,color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}}>{tab==='dep'?'+ Nova dependência':'+ Novo risco'}</button>}
+      </div>
+
+      {tab==='dep'?(
+        deps.length===0
+          ?<div style={{padding:'50px 20px',textAlign:'center',color:'var(--txt3)',fontSize:13}}>Nenhuma dependência mapeada entre iniciativas ainda.</div>
+          :<div style={{display:'flex',flexDirection:'column',gap:8}}>
+            {deps.map(d=>(
+              <div key={d.id} style={{background:'#fff',border:'1px solid var(--border)',borderRadius:10,padding:'12px 16px',display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+                <span style={{fontSize:13,fontWeight:600,color:'var(--txt1)'}}>{d.origem}</span>
+                <span style={{fontSize:10,fontWeight:700,padding:'2px 9px',borderRadius:99,background:(DEP_TIPO[d.tipo]||DEP_TIPO.Relacionada).bg,color:(DEP_TIPO[d.tipo]||DEP_TIPO.Relacionada).c}}>{d.tipo}</span>
+                <span style={{fontSize:13,fontWeight:600,color:'var(--txt1)'}}>{d.destino}</span>
+                {d.obs&&<span style={{fontSize:12,color:'var(--txt3)',flex:1}}>{d.obs}</span>}
+                {canEdit&&<div style={{display:'flex',gap:6,marginLeft:'auto'}}>
+                  <button onClick={()=>setForm({kind:'dep',data:d})} style={{padding:'4px 9px',borderRadius:6,background:'rgba(180,83,9,.07)',border:'1px solid rgba(180,83,9,.2)',color:'#B45309',fontSize:11,cursor:'pointer'}}>Editar</button>
+                  <button onClick={()=>delDep(d.id)} style={{padding:'4px 9px',borderRadius:6,background:'rgba(220,38,38,.07)',border:'1px solid rgba(220,38,38,.2)',color:'#DC2626',fontSize:11,cursor:'pointer'}}>Excluir</button>
+                </div>}
+              </div>
+            ))}
+          </div>
+      ):(
+        riscos.length===0
+          ?<div style={{padding:'50px 20px',textAlign:'center',color:'var(--txt3)',fontSize:13}}>Nenhum risco mapeado ainda.</div>
+          :<div style={{display:'flex',flexDirection:'column',gap:8}}>
+            {riscos.map(r=>(
+              <div key={r.id} style={{background:'#fff',border:'1px solid var(--border)',borderRadius:10,padding:'12px 16px'}}>
+                <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:r.mitigacao?6:0}}>
+                  <span style={{fontSize:10,fontWeight:700,padding:'2px 9px',borderRadius:99,background:(RISK_SEV[r.severidade]||RISK_SEV.Media).bg,color:(RISK_SEV[r.severidade]||RISK_SEV.Media).c}}>{r.severidade}</span>
+                  <span style={{fontSize:10,fontWeight:700,padding:'2px 9px',borderRadius:99,background:(RISK_STATUS[r.status]||RISK_STATUS.Ativo).bg,color:(RISK_STATUS[r.status]||RISK_STATUS.Ativo).c}}>{r.status}</span>
+                  {r.iniciativa&&<span style={{fontSize:11,color:'var(--txt3)'}}>{r.iniciativa}</span>}
+                  <span style={{fontSize:13,color:'var(--txt1)',fontWeight:600}}>{r.descricao}</span>
+                  {canEdit&&<div style={{display:'flex',gap:6,marginLeft:'auto'}}>
+                    <button onClick={()=>setForm({kind:'risco',data:r})} style={{padding:'4px 9px',borderRadius:6,background:'rgba(180,83,9,.07)',border:'1px solid rgba(180,83,9,.2)',color:'#B45309',fontSize:11,cursor:'pointer'}}>Editar</button>
+                    <button onClick={()=>delRisco(r.id)} style={{padding:'4px 9px',borderRadius:6,background:'rgba(220,38,38,.07)',border:'1px solid rgba(220,38,38,.2)',color:'#DC2626',fontSize:11,cursor:'pointer'}}>Excluir</button>
+                  </div>}
+                </div>
+                {r.mitigacao&&<div style={{fontSize:12,color:'var(--txt2)',paddingLeft:2}}><span style={{color:'var(--txt3)'}}>Mitigação: </span>{r.mitigacao}</div>}
+              </div>
+            ))}
+          </div>
+      )}
+      <Modal/>
+    </div>
+  );
+}
+
 function AppMain({currentUser,onLogout}){
   const canEdit=currentUser.role==='admin'||currentUser.role==='editor';
   const isAdmin=currentUser.role==='admin';
@@ -1606,9 +1856,12 @@ function AppMain({currentUser,onLogout}){
 
   const[tasks,setTasks]=useState([]);
   const[iStatus,setIStatus]=useState({});
+  const[tipos,setTipos]=useState({});
+  const[deps,setDeps]=useState([]);
+  const[riscos,setRiscos]=useState([]);
   const[nextId,setNextId]=useState(1);
   const[loaded,setLoaded]=useState(false);
-  const[view,setView]=useState('board');
+  const[view,setView]=useState('dashboard');
   const[drawerOpen,setDrawerOpen]=useState(false);
   const[editing,setEditing]=useState(null);
   const[toast,setToast]=useState(null);
@@ -1621,14 +1874,17 @@ function AppMain({currentUser,onLogout}){
   useEffect(()=>{
     (async()=>{
       try{
-        const[t,r,is,u,sp]=await Promise.all([loadTasks(),loadResps(),dbGet('istatus'),dbGet('users'),loadStatusProduto()]);
+        const[t,r,is,u,sp,tp,dp,rk]=await Promise.all([loadTasks(),loadResps(),dbGet('istatus'),dbGet('users'),loadStatusProduto(),dbGet('tipos'),dbGet('dependencias'),dbGet('riscos')]);
         if(Array.isArray(sp)&&sp.length>0)setStatusProduto(sp);
         const td=Array.isArray(t)&&t.length>0?t:T0;
         setTasks(td);
         setNextId(Math.max(...td.map(x=>x.id||0),0)+1);
         if(Array.isArray(r)&&r.length>0)setRespsLocal(r);
         if(is&&typeof is==='object')setIStatus(is);
-        if(Array.isArray(u)&&u.length>0)setUsers(u);
+        if(u&&Array.isArray(u)&&u.length>0)setUsers(u);
+        if(tp&&typeof tp==='object')setTipos(tp);
+        if(Array.isArray(dp))setDeps(dp);
+        if(Array.isArray(rk))setRiscos(rk);
       }catch(e){console.error('Load error:',e);setTasks(T0);setNextId(T0.length+1);}
       setLoaded(true);
     })();
@@ -1639,6 +1895,9 @@ function AppMain({currentUser,onLogout}){
   useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('istatus',iStatus),600);return()=>clearTimeout(t);},[iStatus,loaded]);
   useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('resps',resps),600);return()=>clearTimeout(t);},[resps,loaded]); // also syncs responsavel table
   useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('users',users),600);return()=>clearTimeout(t);},[users,loaded]);
+  useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('tipos',tipos),600);return()=>clearTimeout(t);},[tipos,loaded]);
+  useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('dependencias',deps),600);return()=>clearTimeout(t);},[deps,loaded]);
+  useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('riscos',riscos),600);return()=>clearTimeout(t);},[riscos,loaded]);
   const active=useMemo(()=>tasks.filter(t=>!DONE.includes(t.s)),[tasks]);
   // Tasks split by initiative status
   const boardTasks=useMemo(()=>active.filter(t=>initView(iStatus[t.g])==='board'),[active,iStatus]);
@@ -1653,18 +1912,26 @@ function AppMain({currentUser,onLogout}){
     const newTasks=items.map((data,i)=>({...data,id:startId+i,a:data.a||today+' - Card criado'}));
     setTasks(prev=>[...prev,...newTasks]);
     setNextId(n=>n+newTasks.length);
+    setTipos(prev=>{const n={...prev};newTasks.forEach(t=>{n[t.id]=t.tipo||'Tarefa';});return n;});
     setToast(newTasks.length+' card'+(newTasks.length!==1?'s':'')+' criado'+(newTasks.length!==1?'s':'')+' em "'+items[0].g+'"');
   };
   const handleSave=(data,editId)=>{
-    if(editId!=null){setTasks(prev=>prev.map(t=>t.id===editId?{...t,...data}:t));setToast('Tarefa atualizada!');}
-    else{
+    const{tipo,...rest}=data;
+    if(editId!=null){
+      setTasks(prev=>prev.map(t=>t.id===editId?{...t,...rest}:t));
+      setTipos(prev=>({...prev,[editId]:tipo||'Tarefa'}));
+      setToast('Tarefa atualizada!');
+    }else{
       const today=new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
-      const a=data.a||today+' - Card criado';
-      setTasks(prev=>[...prev,{...data,id:nextId,a}]);setNextId(n=>n+1);setToast('Tarefa criada em "'+data.g+'"');
+      const a=rest.a||today+' - Card criado';
+      const id=nextId;
+      setTasks(prev=>[...prev,{...rest,id,a}]);setNextId(n=>n+1);
+      setTipos(prev=>({...prev,[id]:tipo||'Tarefa'}));
+      setToast('Tarefa criada em "'+rest.g+'"');
     }
   };
 
-  const VIEWS=[['board','Board','B'],['timeline','Timeline','T'],['backlog','Backlog','B'],['historico','Historico','H']];
+  const VIEWS=[['dashboard','Dashboard'],['board','Board'],['timeline','Timeline'],['backlog','Backlog'],['depriscos','Dependências & Riscos'],['historico','Histórico']];
 
   if(!loaded)return <LoadingScreen/>;
   return(
@@ -1724,8 +1991,13 @@ function AppMain({currentUser,onLogout}){
           </div>
         </div>
       </div>
-      {view==='board'?<BoardView tasks={boardTasks} setTasks={setTasks} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null} iStatus={iStatus} setIStatus={canEdit?setIStatus:null} openBulkCreate={canEdit?setBulkCreate:null} statusProduto={statusProduto}/>:view==='timeline'?<Timeline tasks={boardTasks} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus}/>:view==='backlog'?<BacklogView tasks={tasks} iStatus={iStatus} statusProduto={statusProduto} setIStatus={canEdit?setIStatus:null} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null}/>:<HistoricoView tasks={historicoTasks} setTasks={setTasks} openEdit={openEdit} iStatus={iStatus} setIStatus={canEdit?setIStatus:null} statusProduto={statusProduto} openBulkCreate={canEdit?setBulkCreate:null} canEdit={canEdit}/>}
-      <Drawer open={drawerOpen} onClose={()=>setDrawerOpen(false)} onSave={handleSave} grupos={allG} allResp={[...new Set([...resps,...tasks.map(t=>t.r).filter(Boolean)])].sort((a,b)=>a.localeCompare(b,'pt-BR'))} editing={editing}/>
+      {view==='dashboard'?<DashboardView tasks={tasks} iStatus={iStatus} riscos={riscos} deps={deps}/>
+        :view==='board'?<BoardView tasks={boardTasks} setTasks={setTasks} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null} iStatus={iStatus} setIStatus={canEdit?setIStatus:null} openBulkCreate={canEdit?setBulkCreate:null} statusProduto={statusProduto} tipos={tipos}/>
+        :view==='timeline'?<Timeline tasks={boardTasks} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus}/>
+        :view==='backlog'?<BacklogView tasks={tasks} iStatus={iStatus} statusProduto={statusProduto} setIStatus={canEdit?setIStatus:null} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null}/>
+        :view==='depriscos'?<DependenciasRiscosView tasks={tasks} deps={deps} setDeps={setDeps} riscos={riscos} setRiscos={setRiscos} allG={allG} canEdit={canEdit}/>
+        :<HistoricoView tasks={historicoTasks} setTasks={setTasks} openEdit={openEdit} iStatus={iStatus} setIStatus={canEdit?setIStatus:null} statusProduto={statusProduto} openBulkCreate={canEdit?setBulkCreate:null} canEdit={canEdit}/>}
+      <Drawer open={drawerOpen} onClose={()=>setDrawerOpen(false)} onSave={handleSave} grupos={allG} allResp={[...new Set([...resps,...tasks.map(t=>t.r).filter(Boolean)])].sort((a,b)=>a.localeCompare(b,'pt-BR'))} editing={editing} tipos={tipos}/>
       {toast&&<Toast msg={toast} onDone={()=>setToast(null)}/>}
       {showIM&&<InitiativeManager tasks={tasks} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus} onClose={()=>setShowIM(false)}/>}
       {showUserMgr&&<UserManager currentUser={currentUser} users={users} setUsers={setUsers} onClose={()=>setShowUserMgr(false)}/>}
