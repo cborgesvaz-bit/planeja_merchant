@@ -54,7 +54,7 @@ const SUPA_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 const SUPA_HDR={apikey:SUPA_KEY,Authorization:'Bearer '+SUPA_KEY,'Content-Type':'application/json'};
 
 // Map app task object ↔ Supabase row (uses actual DB column names)
-const taskToRow=t=>({
+const taskToRow=(t,teamId)=>({
   id:t.id,
   'Iniciativa':t.g||'',
   'Card':t.c||'',
@@ -65,6 +65,7 @@ const taskToRow=t=>({
   'Acompanhamento':t.a||'',
   'Link MR':t.mr||'',
   plan_data:t.plan||'',
+  team_id:teamId||t.team_id||null,
 });
 const rowToTask=r=>({
   id:r.id,
@@ -79,41 +80,44 @@ const rowToTask=r=>({
   plan:r.plan_data||'',
 });
 
-async function loadTasks(){
+async function loadTasks(teamId){
   try{
-    const res=await fetch(SUPA_URL+'/rest/v1/tasks?select=*&order=id.asc',{headers:SUPA_HDR});
+    const filter=teamId?'&team_id=eq.'+teamId:'';
+    const res=await fetch(SUPA_URL+'/rest/v1/tasks?select=*&order=id.asc'+filter,{headers:SUPA_HDR});
     const rows=await res.json();
     return Array.isArray(rows)&&rows.length>0?rows.map(rowToTask):null;
   }catch(e){console.error('loadTasks',e);return null;}
 }
 
-async function saveTasks(tasks){
+async function saveTasks(tasks,teamId){
+  if(!teamId)return; // never write in "visão geral" (read-only aggregate) mode
   try{
-    // Upsert all tasks
-    const rows=tasks.map(taskToRow);
+    // Upsert all tasks (scoped to this team)
+    const rows=tasks.map(t=>taskToRow(t,teamId));
     await fetch(SUPA_URL+'/rest/v1/tasks',{
       method:'POST',
       headers:{...SUPA_HDR,Prefer:'resolution=merge-duplicates'},
       body:JSON.stringify(rows),
     });
-    // Delete removed tasks: fetch all IDs then delete ones not in current list
-    const res=await fetch(SUPA_URL+'/rest/v1/tasks?select=id',{headers:SUPA_HDR});
+    // Delete removed tasks: fetch IDs of THIS TEAM only, then delete ones not in current list
+    const res=await fetch(SUPA_URL+'/rest/v1/tasks?select=id&team_id=eq.'+teamId,{headers:SUPA_HDR});
     const allRows=await res.json();
     const currentIds=new Set(tasks.map(t=>t.id));
     const toDelete=allRows.filter(r=>!currentIds.has(r.id)).map(r=>r.id);
     if(toDelete.length>0){
-      await fetch(SUPA_URL+'/rest/v1/tasks?id=in.('+toDelete.join(',')+')',{
+      await fetch(SUPA_URL+'/rest/v1/tasks?id=in.('+toDelete.join(',')+')&team_id=eq.'+teamId,{
         method:'DELETE',headers:SUPA_HDR,
       });
     }
   }catch(e){console.error('saveTasks',e);}
 }
 
-async function loadStatusProduto(){
+async function loadStatusProduto(teamId){
+  const filter=teamId?'&team_id=eq.'+teamId:'';
   const tableNames=['status%20produto','status_produto'];
   for(const tbl of tableNames){
     try{
-      const res=await fetch(SUPA_URL+'/rest/v1/'+tbl+'?select=id,nome&order=id.asc',{headers:SUPA_HDR});
+      const res=await fetch(SUPA_URL+'/rest/v1/'+tbl+'?select=id,nome&order=id.asc'+filter,{headers:SUPA_HDR});
       if(!res.ok)continue;
       const rows=await res.json();
       if(Array.isArray(rows)&&rows.length>0){
@@ -128,57 +132,111 @@ async function loadStatusProduto(){
   return Object.keys(IS_CFG_BASE);
 }
 
-async function loadResps(){
+async function loadResps(teamId){
   try{
-    const res=await fetch(SUPA_URL+'/rest/v1/responsavel?select=id,nome&order=nome.asc',{headers:SUPA_HDR});
+    const filter=teamId?'&team_id=eq.'+teamId:'';
+    const res=await fetch(SUPA_URL+'/rest/v1/responsavel?select=id,nome&order=nome.asc'+filter,{headers:SUPA_HDR});
     const rows=await res.json();
     return Array.isArray(rows)&&rows.length>0?rows.map(r=>r.nome):null;
   }catch(e){console.error('loadResps',e);return null;}
 }
 
-async function saveResp(nome){
+async function saveResp(nome,teamId){
   try{
     await fetch(SUPA_URL+'/rest/v1/responsavel',{
       method:'POST',
       headers:{...SUPA_HDR,Prefer:'resolution=merge-duplicates'},
-      body:JSON.stringify({nome}),
+      body:JSON.stringify({nome,team_id:teamId||null}),
     });
   }catch(e){console.error('saveResp',e);}
 }
 
-async function deleteResp(nome){
+async function deleteResp(nome,teamId){
   try{
-    await fetch(SUPA_URL+'/rest/v1/responsavel?nome=eq.'+encodeURIComponent(nome),{
+    const filter=teamId?'&team_id=eq.'+teamId:'';
+    await fetch(SUPA_URL+'/rest/v1/responsavel?nome=eq.'+encodeURIComponent(nome)+filter,{
       method:'DELETE',headers:SUPA_HDR,
     });
   }catch(e){console.error('deleteResp',e);}
 }
 
-async function updateResp(oldNome,newNome){
+async function updateResp(oldNome,newNome,teamId){
   try{
-    await fetch(SUPA_URL+'/rest/v1/responsavel?nome=eq.'+encodeURIComponent(oldNome),{
+    const filter=teamId?'&team_id=eq.'+teamId:'';
+    await fetch(SUPA_URL+'/rest/v1/responsavel?nome=eq.'+encodeURIComponent(oldNome)+filter,{
       method:'PATCH',headers:SUPA_HDR,
       body:JSON.stringify({nome:newNome}),
     });
   }catch(e){console.error('updateResp',e);}
 }
 
-async function dbGet(key){
+/* pm_data key scoping — BACKWARDS COMPATIBLE.
+   The pre-existing team ("Sésamo") keeps using the ORIGINAL unprefixed keys
+   ('istatus','tipos','dependencias','riscos','resps'), so none of the data
+   already in the base is orphaned or overwritten. Only teams created from now
+   on use namespaced keys ("<teamId>:istatus"). No migration required. */
+const LEGACY_TEAM_ID='adbdd22f-b6c4-42d7-91db-08a672ae6a17';
+const GLOBAL_KEYS=['users']; // login/roles are app-wide, never per team
+function nsKey(key,teamId){
+  if(GLOBAL_KEYS.includes(key))return key;
+  if(!teamId||teamId===LEGACY_TEAM_ID)return key; // legacy team + aggregate view read the original rows
+  return teamId+':'+key;
+}
+
+async function dbGet(key,teamId){
   try{
-    const r=await fetch(SUPA_URL+'/rest/v1/pm_data?key=eq.'+key+'&select=value',{headers:SUPA_HDR});
+    const k=nsKey(key,teamId);
+    const r=await fetch(SUPA_URL+'/rest/v1/pm_data?key=eq.'+encodeURIComponent(k)+'&select=value',{headers:SUPA_HDR});
     const d=await r.json();
     return d&&d.length>0?d[0].value:null;
   }catch(e){console.error('dbGet',key,e);return null;}
 }
 
-async function dbSet(key,value){
+async function dbSet(key,value,teamId){
   try{
+    const k=nsKey(key,teamId);
     await fetch(SUPA_URL+'/rest/v1/pm_data',{
       method:'POST',
       headers:{...SUPA_HDR,Prefer:'resolution=merge-duplicates'},
-      body:JSON.stringify({key,value,updated_at:new Date().toISOString()})
+      body:JSON.stringify({key:k,value,updated_at:new Date().toISOString()})
     });
   }catch(e){console.error('dbSet',key,e);}
+}
+
+/* ── Teams ─────────────────────────────────────────────── */
+async function loadTeams(){
+  try{
+    const res=await fetch(SUPA_URL+'/rest/v1/teams?select=*&order=nome.asc',{headers:SUPA_HDR});
+    const rows=await res.json();
+    return Array.isArray(rows)?rows:[];
+  }catch(e){console.error('loadTeams',e);return [];}
+}
+
+async function createTeam(nome,descricao){
+  try{
+    const res=await fetch(SUPA_URL+'/rest/v1/teams',{
+      method:'POST',
+      headers:{...SUPA_HDR,Prefer:'return=representation'},
+      body:JSON.stringify({nome,descricao:descricao||null}),
+    });
+    const rows=await res.json();
+    return Array.isArray(rows)&&rows.length>0?rows[0]:null;
+  }catch(e){console.error('createTeam',e);return null;}
+}
+
+async function updateTeam(id,fields){
+  try{
+    await fetch(SUPA_URL+'/rest/v1/teams?id=eq.'+id,{
+      method:'PATCH',headers:SUPA_HDR,
+      body:JSON.stringify(fields),
+    });
+  }catch(e){console.error('updateTeam',e);}
+}
+
+async function deleteTeam(id){
+  try{
+    await fetch(SUPA_URL+'/rest/v1/teams?id=eq.'+id,{method:'DELETE',headers:SUPA_HDR});
+  }catch(e){console.error('deleteTeam',e);}
 }
 
 function LoadingScreen(){
@@ -1863,12 +1921,19 @@ function DependenciasRiscosView({tasks,deps,setDeps,riscos,setRiscos,allG=[],can
 }
 
 function AppMain({currentUser,onLogout}){
-  const canEdit=currentUser.role==='admin'||currentUser.role==='editor';
   const isAdmin=currentUser.role==='admin';
   const[showUserMgr,setShowUserMgr]=useState(false);
   const[showRespMgr,setShowRespMgr]=useState(false);
+  const[showTeamMgr,setShowTeamMgr]=useState(false);
+  const[teams,setTeams]=useState([]);
+  const[teamId,setTeamIdState]=useState(()=>{try{return localStorage.getItem('pm_current_team')||null;}catch(e){return null;}}); // null = "Visão Geral"
+  const setTeamId=id=>{setTeamIdState(id);try{id?localStorage.setItem('pm_current_team',id):localStorage.removeItem('pm_current_team');}catch(e){}};
+  const isAllView=!teamId;
+  const currentTeam=useMemo(()=>teams.find(t=>t.id===teamId)||null,[teams,teamId]);
+  const canEdit=(currentUser.role==='admin'||currentUser.role==='editor')&&!isAllView;
   const[resps,setRespsLocal]=useState(DEFAULT_RESP);
-  const[users,setUsers]=useState(DEFAULT_USERS);
+  const[users,setUsersRaw]=useState(DEFAULT_USERS);
+  const setUsers=v=>{dirty.current.users=true;setUsersRaw(v);};
   const[statusProduto,setStatusProduto]=useState(['Backlog','Discovery Produto','Discovery Tecnico','Desenvolvimento','Homologacao','Pausado','Concluido']);
   const[theme,setTheme]=useState(()=>{try{return localStorage.getItem('pm_theme')||'light';}catch(e){return'light';}});
   useEffect(()=>{
@@ -1878,11 +1943,23 @@ function AppMain({currentUser,onLogout}){
   const toggleTheme=()=>setTheme(t=>t==='light'?'dark':'light');
   const handleLogout=()=>{onLogout();};
 
-  const[tasks,setTasks]=useState([]);
-  const[iStatus,setIStatus]=useState({});
-  const[tipos,setTipos]=useState({});
-  const[deps,setDeps]=useState([]);
-  const[riscos,setRiscos]=useState([]);
+  /* dirty: tracks which slices the USER actually changed. Loading never sets it,
+     so a failed/empty load can never be persisted over existing data. */
+  const dirty=useRef({});
+  const[loadError,setLoadError]=useState(false);
+  const[tasks,setTasksRaw]=useState([]);
+  const[iStatus,setIStatusRaw]=useState({});
+  const[tipos,setTiposRaw]=useState({});
+  const[deps,setDepsRaw]=useState([]);
+  const[riscos,setRiscosRaw]=useState([]);
+  // Public setters used by the views — these mark the slice dirty, enabling save.
+  const mark=k=>{dirty.current[k]=true;};
+  const setTasks=v=>{mark('tasks');setTasksRaw(v);};
+  const setIStatus=v=>{mark('istatus');setIStatusRaw(v);};
+  const setTipos=v=>{mark('tipos');setTiposRaw(v);};
+  const setDeps=v=>{mark('deps');setDepsRaw(v);};
+  const setRiscos=v=>{mark('riscos');setRiscosRaw(v);};
+  const setResps=v=>{mark('resps');setRespsLocal(v);};
   const[nextId,setNextId]=useState(1);
   const[loaded,setLoaded]=useState(false);
   const[view,setView]=useState('dashboard');
@@ -1894,34 +1971,56 @@ function AppMain({currentUser,onLogout}){
   const hasLocalData=true;
   const restoreDefaults=async()=>{if(window.confirm('Restaurar dados originais?')){await dbSet('tasks',T0);window.location.reload();}};
 
-  // Load all data from Supabase on mount
+  // Load list of teams once on mount
+  useEffect(()=>{(async()=>{
+    const tms=await loadTeams();
+    setTeams(tms);
+    // if the saved team no longer exists, fall back to "Visão Geral"
+    if(teamId&&!tms.some(t=>t.id===teamId))setTeamId(null);
+  })();},[]);
+
+  /* Load data scoped to the current team (or aggregated, in "Visão Geral").
+     IMPORTANT: never seeds T0 over a team that simply has no rows yet — seeding
+     was how sample data could overwrite the real base. An empty team stays empty. */
   useEffect(()=>{
+    setLoaded(false);
+    dirty.current={}; // reset dirty tracking so loading never triggers a write
     (async()=>{
       try{
-        const[t,r,is,u,sp,tp,dp,rk]=await Promise.all([loadTasks(),loadResps(),dbGet('istatus'),dbGet('users'),loadStatusProduto(),dbGet('tipos'),dbGet('dependencias'),dbGet('riscos')]);
+        const[t,r,is,u,sp,tp,dp,rk]=await Promise.all([loadTasks(teamId),loadResps(teamId),dbGet('istatus',teamId),dbGet('users',teamId),loadStatusProduto(teamId),dbGet('tipos',teamId),dbGet('dependencias',teamId),dbGet('riscos',teamId)]);
         if(Array.isArray(sp)&&sp.length>0)setStatusProduto(sp);
-        const td=Array.isArray(t)&&t.length>0?t:T0;
-        setTasks(td);
+        const td=Array.isArray(t)?t:[];
+        setTasksRaw(td);
         setNextId(Math.max(...td.map(x=>x.id||0),0)+1);
-        if(Array.isArray(r)&&r.length>0)setRespsLocal(r);
-        if(is&&typeof is==='object')setIStatus(is);
-        if(u&&Array.isArray(u)&&u.length>0)setUsers(u);
-        if(tp&&typeof tp==='object')setTipos(tp);
-        if(Array.isArray(dp))setDeps(dp);
-        if(Array.isArray(rk))setRiscos(rk);
-      }catch(e){console.error('Load error:',e);setTasks(T0);setNextId(T0.length+1);}
+        setRespsLocal(Array.isArray(r)&&r.length>0?r:[]);
+        setIStatusRaw(is&&typeof is==='object'?is:{});
+        if(u&&Array.isArray(u)&&u.length>0)setUsersRaw(u);
+        setTiposRaw(tp&&typeof tp==='object'?tp:{});
+        setDepsRaw(Array.isArray(dp)?dp:[]);
+        setRiscosRaw(Array.isArray(rk)?rk:[]);
+        setLoadError(false);
+      }catch(e){
+        // On failure we do NOT touch state — leaving stale data on screen is far
+        // safer than blanking it and letting the debounced save persist the blank.
+        console.error('Load error:',e);setLoadError(true);
+      }
       setLoaded(true);
     })();
-  },[]);
+  },[teamId]);
 
-  // Save to Supabase (debounced)
-  useEffect(()=>{if(!loaded||!tasks.length)return;const t=setTimeout(()=>saveTasks(tasks),600);return()=>clearTimeout(t);},[tasks,loaded]);
-  useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('istatus',iStatus),600);return()=>clearTimeout(t);},[iStatus,loaded]);
-  useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('resps',resps),600);return()=>clearTimeout(t);},[resps,loaded]); // also syncs responsavel table
-  useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('users',users),600);return()=>clearTimeout(t);},[users,loaded]);
-  useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('tipos',tipos),600);return()=>clearTimeout(t);},[tipos,loaded]);
-  useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('dependencias',deps),600);return()=>clearTimeout(t);},[deps,loaded]);
-  useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('riscos',riscos),600);return()=>clearTimeout(t);},[riscos,loaded]);
+  /* Debounced persistence.
+     Guards, in order: must be loaded, must not be the read-only aggregate view,
+     the last load must have succeeded, and the field must have been touched by
+     the user (dirty). Together these make it impossible for a load glitch to
+     write an empty value over good data. */
+  const canSave=key=>loaded&&!isAllView&&!loadError&&dirty.current[key];
+  useEffect(()=>{if(!canSave('tasks')||!tasks.length)return;const t=setTimeout(()=>saveTasks(tasks,teamId),600);return()=>clearTimeout(t);},[tasks,loaded,teamId]);
+  useEffect(()=>{if(!canSave('istatus'))return;const t=setTimeout(()=>dbSet('istatus',iStatus,teamId),600);return()=>clearTimeout(t);},[iStatus,loaded,teamId]);
+  useEffect(()=>{if(!canSave('resps'))return;const t=setTimeout(()=>dbSet('resps',resps,teamId),600);return()=>clearTimeout(t);},[resps,loaded,teamId]);
+  useEffect(()=>{if(!loaded||!dirty.current.users)return;const t=setTimeout(()=>dbSet('users',users),600);return()=>clearTimeout(t);},[users,loaded]); // users/roles stay global
+  useEffect(()=>{if(!canSave('tipos'))return;const t=setTimeout(()=>dbSet('tipos',tipos,teamId),600);return()=>clearTimeout(t);},[tipos,loaded,teamId]);
+  useEffect(()=>{if(!canSave('deps'))return;const t=setTimeout(()=>dbSet('dependencias',deps,teamId),600);return()=>clearTimeout(t);},[deps,loaded,teamId]);
+  useEffect(()=>{if(!canSave('riscos'))return;const t=setTimeout(()=>dbSet('riscos',riscos,teamId),600);return()=>clearTimeout(t);},[riscos,loaded,teamId]);
   const active=useMemo(()=>tasks.filter(t=>!DONE.includes(t.s)),[tasks]);
   // Tasks split by initiative status
   const boardTasks=useMemo(()=>active.filter(t=>initView(iStatus[t.g])==='board'),[active,iStatus]);
@@ -1974,6 +2073,15 @@ function AppMain({currentUser,onLogout}){
           <div style={{width:32,height:32,borderRadius:9,background:'linear-gradient(135deg,var(--accent),var(--cyan))',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:16}}>🧭</div>
           <div style={{fontSize:14,fontWeight:800,color:'#fff',letterSpacing:-.3,lineHeight:1.2}}>Planeja<br/>Merchant</div>
         </div>
+        <div style={{padding:'0 12px 10px'}}>
+          <div style={{fontSize:9,fontWeight:700,color:'var(--sidebar-txt)',opacity:.6,textTransform:'uppercase',letterSpacing:.6,marginBottom:6}}>Time</div>
+          <select value={teamId||'__all__'} onChange={e=>setTeamId(e.target.value==='__all__'?null:e.target.value)}
+            style={{width:'100%',padding:'7px 9px',borderRadius:8,background:'rgba(255,255,255,.06)',border:'1px solid rgba(255,255,255,.1)',color:'#fff',fontSize:12,fontWeight:600,outline:'none',cursor:'pointer'}}>
+            <option value="__all__" style={{color:'#111'}}>🌐 Visão Geral</option>
+            {teams.map(t=><option key={t.id} value={t.id} style={{color:'#111'}}>{t.nome}</option>)}
+          </select>
+          {isAdmin&&<button onClick={()=>setShowTeamMgr(true)} style={{width:'100%',marginTop:6,padding:'6px 9px',borderRadius:8,background:'transparent',border:'1px dashed rgba(255,255,255,.18)',color:'var(--sidebar-txt)',fontSize:11,fontWeight:600,cursor:'pointer'}}>⚙ Gerenciar times</button>}
+        </div>
         <div style={{padding:'4px 12px',display:'flex',flexDirection:'column',gap:2,flex:1}}>
           {VIEWS.map(([id,lbl,ico])=>(
             <button key={id} className="sb-item" onClick={()=>setView(id)} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 12px',borderRadius:8,border:'none',background:view===id?'rgba(255,255,255,.1)':'transparent',color:view===id?'var(--sidebar-txt-active)':'var(--sidebar-txt)',fontSize:13,fontWeight:view===id?700:500,cursor:'pointer',textAlign:'left',transition:'background .12s'}}>
@@ -2017,7 +2125,7 @@ function AppMain({currentUser,onLogout}){
                   <div style={{fontSize:11,fontWeight:600,color:'var(--txt1)',whiteSpace:'nowrap'}}>{currentUser.name}</div>
                   <div style={{fontSize:9,color:'var(--txt3)'}}>{ROLES[currentUser.role]?.label||currentUser.role}</div>
                 </div>
-                {isAdmin&&<button onClick={()=>setShowRespMgr(true)} title="Gerenciar responsáveis" style={{background:'none',border:'none',color:'var(--txt3)',cursor:'pointer',padding:'2px',fontSize:14,lineHeight:1}}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="8" r="4"/><path d="M6 20v-2a4 4 0 018 0v2"/><line x1="19" y1="11" x2="19" y2="17"/><line x1="16" y1="14" x2="22" y2="14"/></svg></button>}
+                {isAdmin&&!isAllView&&<button onClick={()=>setShowRespMgr(true)} title="Gerenciar responsáveis" style={{background:'none',border:'none',color:'var(--txt3)',cursor:'pointer',padding:'2px',fontSize:14,lineHeight:1}}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="8" r="4"/><path d="M6 20v-2a4 4 0 018 0v2"/><line x1="19" y1="11" x2="19" y2="17"/><line x1="16" y1="14" x2="22" y2="14"/></svg></button>}
                 {isAdmin&&<button onClick={()=>setShowUserMgr(true)} title="Gerenciar usuários" style={{background:'none',border:'none',color:'var(--txt3)',cursor:'pointer',padding:'2px',fontSize:14,lineHeight:1}}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
                 </button>}
@@ -2028,6 +2136,9 @@ function AppMain({currentUser,onLogout}){
             </div>
           </div>
         </div>
+        {isAllView&&<div style={{padding:'8px 24px',background:'rgba(99,102,241,.08)',borderBottom:'1px solid var(--border)',fontSize:12,color:'var(--accent2)',fontWeight:600,display:'flex',alignItems:'center',gap:6}}>
+          🌐 Visão Geral — dados agregados de todos os times (somente leitura). Selecione um time no menu lateral para editar.
+        </div>}
         <div style={{flex:1,minWidth:0}}>
           {view==='dashboard'?<DashboardView tasks={tasks} iStatus={iStatus} riscos={riscos} deps={deps}/>
             :view==='board'?<BoardView tasks={boardTasks} setTasks={setTasks} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null} iStatus={iStatus} setIStatus={canEdit?setIStatus:null} openBulkCreate={canEdit?setBulkCreate:null} statusProduto={statusProduto} tipos={tipos}/>
@@ -2041,8 +2152,9 @@ function AppMain({currentUser,onLogout}){
       {toast&&<Toast msg={toast} onDone={()=>setToast(null)}/>}
       {showIM&&<InitiativeManager tasks={tasks} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus} onClose={()=>setShowIM(false)}/>}
       {showUserMgr&&<UserManager currentUser={currentUser} users={users} setUsers={setUsers} onClose={()=>setShowUserMgr(false)}/>}
-      {showRespMgr&&<ResponsavelManager resps={resps} onSave={r=>{setRespsLocal(r);}} onClose={()=>setShowRespMgr(false)}/>}
+      {showRespMgr&&<ResponsavelManager resps={resps} teamId={teamId} onSave={r=>{setResps(r);}} onClose={()=>setShowRespMgr(false)}/>}
       {bulkCreate&&<BulkCreateModal grupo={bulkCreate} onSave={handleMultiSave} onClose={()=>setBulkCreate(null)} nextId={nextId} allResp={resps}/>}
+      {showTeamMgr&&<TeamManager teams={teams} setTeams={setTeams} currentTeamId={teamId} onSelectTeam={setTeamId} onClose={()=>setShowTeamMgr(false)}/>}
     </div>
   );
 }
@@ -2053,7 +2165,7 @@ const DEFAULT_RESP=['Aleson','Camila','Diguinho','Islan','Lourene','Matheus'];
 function getResps(){try{const r=localStorage.getItem('pm_resps');return r?JSON.parse(r):DEFAULT_RESP;}catch(e){return DEFAULT_RESP;}}
 function saveResps(r){try{localStorage.setItem('pm_resps',JSON.stringify(r));}catch(e){}}
 
-function ResponsavelManager({resps:initResps,onSave,onClose}){
+function ResponsavelManager({resps:initResps,teamId,onSave,onClose}){
   const[resps,setRespsState]=useState((initResps||getResps()).slice().sort((a,b)=>a.localeCompare(b,'pt-BR')));
   const[newName,setNewName]=useState('');
   const[editing,setEditing]=useState(null); // {idx, draft}
@@ -2065,9 +2177,9 @@ function ResponsavelManager({resps:initResps,onSave,onClose}){
     const s=[...newList].sort((a,b)=>a.localeCompare(b,'pt-BR'));
     setRespsState(s);if(onSave)onSave(s);
     try{
-      if(added)await saveResp(added);
-      if(removed)await deleteResp(removed);
-      if(updated)await updateResp(updated.old,updated.new);
+      if(added)await saveResp(added,teamId);
+      if(removed)await deleteResp(removed,teamId);
+      if(updated)await updateResp(updated.old,updated.new,teamId);
     }catch(e){console.error('persist resp',e);}
   };
 
@@ -2164,6 +2276,139 @@ function ResponsavelManager({resps:initResps,onSave,onClose}){
   );
 }
 
+
+/* ── Team Manager ──────────────────────────────────────── */
+function TeamManager({teams,setTeams,currentTeamId,onSelectTeam,onClose}){
+  const[newNome,setNewNome]=useState('');
+  const[newDesc,setNewDesc]=useState('');
+  const[editing,setEditing]=useState(null); // {id, nome, descricao}
+  const[confirmDel,setConfirmDel]=useState(null);
+  const[delConfirmText,setDelConfirmText]=useState('');
+  const[delErr,setDelErr]=useState('');
+  const[err,setErr]=useState('');
+
+  const ist={background:'var(--bg)',border:'1px solid var(--border)',borderRadius:8,color:'var(--txt1)',fontSize:13,padding:'7px 11px',outline:'none',width:'100%'};
+
+  const add=async()=>{
+    const n=newNome.trim();
+    if(!n){setErr('Nome obrigatório');return;}
+    if(teams.some(t=>t.nome.toLowerCase()===n.toLowerCase())){setErr('Já existe um time com esse nome');return;}
+    const created=await createTeam(n,newDesc.trim());
+    if(!created){setErr('Erro ao criar time. Tente novamente.');return;}
+    setTeams(prev=>[...prev,created].sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR')));
+    setNewNome('');setNewDesc('');setErr('');
+  };
+
+  const commitEdit=async()=>{
+    if(!editing)return;
+    const n=editing.nome.trim();
+    if(!n){setEditing(null);return;}
+    if(teams.some(t=>t.id!==editing.id&&t.nome.toLowerCase()===n.toLowerCase())){setEditing(e=>({...e,err:'Já existe um time com esse nome'}));return;}
+    await updateTeam(editing.id,{nome:n,descricao:editing.descricao||null});
+    setTeams(prev=>prev.map(t=>t.id===editing.id?{...t,nome:n,descricao:editing.descricao}:t).sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR')));
+    setEditing(null);
+  };
+
+  /* Deletion cascades to tasks/responsáveis/status of that team and CANNOT be undone,
+     so we require the user to type the exact team name first. */
+  const del=async team=>{
+    if(delConfirmText.trim()!==team.nome){setDelErr('Digite o nome do time exatamente como aparece.');return;}
+    await deleteTeam(team.id);
+    setTeams(prev=>prev.filter(t=>t.id!==team.id));
+    if(currentTeamId===team.id)onSelectTeam(null); // volta pra Visão Geral se o time ativo foi removido
+    setConfirmDel(null);setDelConfirmText('');setDelErr('');
+  };
+
+  return(
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.5)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+      <div style={{background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:14,width:'min(520px,100%)',maxHeight:'88vh',display:'flex',flexDirection:'column',boxShadow:'0 16px 56px rgba(0,0,0,.2)'}}>
+
+        <div style={{padding:'18px 22px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+          <div>
+            <div style={{fontSize:15,fontWeight:700,color:'var(--txt1)'}}>Gerenciar Times</div>
+            <div style={{fontSize:11,color:'var(--txt3)',marginTop:2}}>{teams.length} time{teams.length!==1?'s':''} cadastrado{teams.length!==1?'s':''}</div>
+          </div>
+          <button onClick={onClose} style={{background:'none',border:'none',color:'var(--txt2)',fontSize:18,cursor:'pointer'}}>✕</button>
+        </div>
+
+        <div style={{flex:1,overflowY:'auto',padding:'18px 22px',display:'flex',flexDirection:'column',gap:16}}>
+
+          {/* Add new */}
+          <div>
+            <div style={{fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8,marginBottom:7}}>Novo time</div>
+            <div style={{display:'flex',flexDirection:'column',gap:7}}>
+              <input value={newNome} onChange={e=>{setNewNome(e.target.value);setErr('');}} placeholder="Ex: Antifraude" style={ist}
+                onFocus={e=>e.target.style.borderColor='var(--accent)'} onBlur={e=>e.target.style.borderColor='var(--border)'}/>
+              <input value={newDesc} onChange={e=>setNewDesc(e.target.value)} placeholder="Descrição (opcional)" style={ist}
+                onFocus={e=>e.target.style.borderColor='var(--accent)'} onBlur={e=>e.target.style.borderColor='var(--border)'}/>
+              <button onClick={add} style={{padding:'8px 18px',background:'linear-gradient(135deg,var(--accent),var(--cyan))',border:'none',borderRadius:8,color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer',alignSelf:'flex-start'}}>+ Criar time</button>
+              {err&&<div style={{fontSize:11,color:'#DC2626'}}>{err}</div>}
+            </div>
+          </div>
+
+          {/* List */}
+          <div>
+            <div style={{fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8,marginBottom:7}}>Times cadastrados</div>
+            <div style={{display:'flex',flexDirection:'column',gap:6}}>
+              {teams.length===0&&<div style={{fontSize:12,color:'var(--txt3)',padding:'10px 0'}}>Nenhum time cadastrado ainda.</div>}
+              {teams.map(team=>{
+                const isEd=editing&&editing.id===team.id;
+                const isDel=confirmDel===team.id;
+                const isActive=currentTeamId===team.id;
+                return(
+                  <div key={team.id} style={{padding:'10px 13px',background:isActive?'var(--bg3)':'var(--bg)',border:'1px solid '+(isActive?'var(--accent)':'var(--border)'),borderRadius:9}}>
+                    {isEd
+                      ?<div style={{display:'flex',flexDirection:'column',gap:6}}>
+                         <input autoFocus value={editing.nome} onChange={e=>setEditing(ed=>({...ed,nome:e.target.value,err:''}))} style={{...ist,fontWeight:600}}/>
+                         <input value={editing.descricao||''} onChange={e=>setEditing(ed=>({...ed,descricao:e.target.value}))} placeholder="Descrição" style={ist}/>
+                         {editing.err&&<span style={{fontSize:11,color:'#DC2626'}}>{editing.err}</span>}
+                         <div style={{display:'flex',gap:6}}>
+                           <button onClick={commitEdit} style={{padding:'4px 12px',borderRadius:6,background:'var(--accent)',border:'none',color:'#fff',fontSize:11,fontWeight:700,cursor:'pointer'}}>Salvar</button>
+                           <button onClick={()=>setEditing(null)} style={{padding:'4px 12px',borderRadius:6,background:'transparent',border:'1px solid var(--border)',color:'var(--txt2)',fontSize:11,cursor:'pointer'}}>Cancelar</button>
+                         </div>
+                       </div>
+                      :<div style={{display:'flex',alignItems:'center',gap:10}}>
+                         <div style={{flex:1,cursor:'pointer'}} onClick={()=>onSelectTeam(team.id)}>
+                           <div style={{fontSize:13,fontWeight:700,color:'var(--txt1)'}}>{team.nome}{isActive&&<span style={{marginLeft:6,fontSize:10,color:'var(--accent)'}}>● ativo</span>}</div>
+                           {team.descricao&&<div style={{fontSize:11,color:'var(--txt3)',marginTop:2}}>{team.descricao}</div>}
+                         </div>
+                         {isDel
+                           ?null
+                           :<div style={{display:'flex',gap:5,flexShrink:0}}>
+                              <button onClick={()=>setEditing({id:team.id,nome:team.nome,descricao:team.descricao||''})} style={{padding:'4px 9px',borderRadius:6,background:'rgba(180,83,9,.07)',border:'1px solid rgba(180,83,9,.2)',color:'#B45309',fontSize:11,cursor:'pointer'}}>Editar</button>
+                              <button onClick={()=>{setConfirmDel(team.id);setDelConfirmText('');setDelErr('');}} style={{padding:'4px 9px',borderRadius:6,background:'rgba(220,38,38,.07)',border:'1px solid rgba(220,38,38,.2)',color:'#DC2626',fontSize:11,cursor:'pointer'}}>Excluir</button>
+                            </div>
+                         }
+                       </div>
+                    }
+                    {isDel&&!isEd&&
+                      <div style={{marginTop:9,padding:'10px 12px',background:'rgba(220,38,38,.06)',border:'1px solid rgba(220,38,38,.25)',borderRadius:8}}>
+                        <div style={{fontSize:11,color:'#DC2626',fontWeight:700,marginBottom:5}}>⚠ Ação irreversível</div>
+                        <div style={{fontSize:11,color:'var(--txt2)',marginBottom:7}}>Isso apagará permanentemente todas as tarefas, responsáveis e status do time <b>{team.nome}</b>. Para confirmar, digite o nome do time abaixo.</div>
+                        <input autoFocus value={delConfirmText} onChange={e=>{setDelConfirmText(e.target.value);setDelErr('');}} placeholder={team.nome} style={{...ist,marginBottom:6}}/>
+                        {delErr&&<div style={{fontSize:11,color:'#DC2626',marginBottom:6}}>{delErr}</div>}
+                        <div style={{display:'flex',gap:6}}>
+                          <button onClick={()=>del(team)} disabled={delConfirmText.trim()!==team.nome}
+                            style={{padding:'5px 13px',borderRadius:6,background:delConfirmText.trim()===team.nome?'#DC2626':'rgba(220,38,38,.3)',border:'none',color:'#fff',fontSize:11,fontWeight:700,cursor:delConfirmText.trim()===team.nome?'pointer':'not-allowed'}}>Excluir definitivamente</button>
+                          <button onClick={()=>{setConfirmDel(null);setDelConfirmText('');setDelErr('');}} style={{padding:'5px 13px',borderRadius:6,background:'transparent',border:'1px solid var(--border)',color:'var(--txt2)',fontSize:11,cursor:'pointer'}}>Cancelar</button>
+                        </div>
+                      </div>
+                    }
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{fontSize:11,color:'var(--txt3)',marginTop:8}}>Clique no nome de um time para trocar o contexto ativo. Excluir um time remove permanentemente suas tarefas, responsáveis e status.</div>
+          </div>
+        </div>
+
+        <div style={{padding:'12px 22px',borderTop:'1px solid var(--border)',flexShrink:0,background:'var(--bg2)',borderRadius:'0 0 14px 14px'}}>
+          <button onClick={onClose} style={{padding:'8px 22px',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:8,color:'var(--txt2)',fontSize:12,fontWeight:600,cursor:'pointer'}}>Fechar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function BacklogView({tasks,iStatus,statusProduto,setIStatus,openCreate,openEdit}){
   const backlogGrupos=useMemo(()=>{
