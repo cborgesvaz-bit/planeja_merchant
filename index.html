@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>Planeja Merchant</title>
+<title>Planeja Camis</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
@@ -243,7 +243,7 @@ function LoadingScreen(){
   return(
     <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'var(--bg)',flexDirection:'column',gap:16}}>
       <div style={{width:48,height:48,borderRadius:12,background:'linear-gradient(135deg,var(--accent),var(--cyan))',display:'flex',alignItems:'center',justifyContent:'center',fontSize:22}}>🧭</div>
-      <div style={{fontSize:15,fontWeight:600,color:'var(--txt2)'}}>Carregando Planeja Merchant...</div>
+      <div style={{fontSize:15,fontWeight:600,color:'var(--txt2)'}}>Carregando Planeja Camis...</div>
       <div style={{width:200,height:3,background:'var(--border)',borderRadius:99,overflow:'hidden'}}>
         <div style={{width:'60%',height:'100%',background:'linear-gradient(90deg,var(--accent),var(--cyan))',borderRadius:99,animation:'pulse 1.5s ease infinite'}}/>
       </div>
@@ -623,7 +623,8 @@ function Drawer({open,onClose,onSave,grupos,allResp,editing,tipos={}}){
                   <Lbl c="Responsavel"/>
                   <select value={form.r} onChange={e=>set('r',e.target.value)} style={ist} onFocus={e=>e.target.style.borderColor='var(--accent)'} onBlur={e=>e.target.style.borderColor='var(--border)'}>
                     <option value="">— Sem responsavel —</option>
-                    {(allResp&&allResp.length?allResp:['Aleson','Camila','Diguinho','Islan','Lourene','Matheus']).map(r=><option key={r} value={r}>{r}</option>)}
+                    {(allResp||[]).map(r=><option key={r} value={r}>{r}</option>)}
+                    {(!allResp||!allResp.length)&&<option value="" disabled>Nenhum responsável cadastrado neste time</option>}
                   </select>
                 </div>
               </div>
@@ -1404,7 +1405,7 @@ function HistoricoView({tasks,setTasks,openEdit,iStatus,setIStatus,statusProduto
 function BulkCreateModal({grupo,onSave,onClose,nextId,allResp}){
   const mkRow=()=>({id:Date.now()+Math.random(),t:'',c:'',s:'Nao Iniciado',r:''});
   const[rows,setRows]=useState([mkRow()]);
-  const allResp2=(allResp&&allResp.length?allResp:['Aleson','Camila','Diguinho','Islan','Lourene','Matheus']);
+  const allResp2=(allResp||[]);
 
   const setRow=(id,key,val)=>setRows(prev=>prev.map(r=>r.id===id?{...r,[key]:val}:r));
   const addRow=()=>setRows(prev=>[...prev,mkRow()]);
@@ -1544,7 +1545,7 @@ function LoginScreen({onLogin}){
         {/* Header */}
         <div style={{padding:'32px 36px 24px',background:'linear-gradient(135deg,var(--accent),var(--cyan))',textAlign:'center'}}>
           <div style={{width:56,height:56,borderRadius:14,background:'rgba(255,255,255,.2)',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 14px',fontSize:26}}>🧭</div>
-          <div style={{fontSize:22,fontWeight:800,color:'#fff',letterSpacing:-.5}}>Planeja Merchant</div>
+          <div style={{fontSize:22,fontWeight:800,color:'#fff',letterSpacing:-.5}}>Planeja Camis</div>
           <div style={{fontSize:13,color:'rgba(255,255,255,.75)',marginTop:4}}>Faça login para continuar</div>
         </div>
         {/* Form */}
@@ -1931,7 +1932,7 @@ function AppMain({currentUser,onLogout}){
   const isAllView=!teamId;
   const currentTeam=useMemo(()=>teams.find(t=>t.id===teamId)||null,[teams,teamId]);
   const canEdit=(currentUser.role==='admin'||currentUser.role==='editor')&&!isAllView;
-  const[resps,setRespsLocal]=useState(DEFAULT_RESP);
+  const[resps,setRespsLocal]=useState([]);
   const[users,setUsersRaw]=useState(DEFAULT_USERS);
   const setUsers=v=>{dirty.current.users=true;setUsersRaw(v);};
   const[statusProduto,setStatusProduto]=useState(['Backlog','Discovery Produto','Discovery Tecnico','Desenvolvimento','Homologacao','Pausado','Concluido']);
@@ -2062,7 +2063,7 @@ function AppMain({currentUser,onLogout}){
     ['depriscos','Dependências & Riscos','🔗'],
     ['historico','Histórico','✅'],
   ];
-  const viewLbl=(VIEWS.find(v=>v[0]===view)||[,'Planeja Merchant'])[1];
+  const viewLbl=(VIEWS.find(v=>v[0]===view)||[,'Planeja Camis'])[1];
 
   if(!loaded)return <LoadingScreen/>;
   return(
@@ -2071,7 +2072,7 @@ function AppMain({currentUser,onLogout}){
       <div style={{width:230,flexShrink:0,background:'var(--sidebar-bg)',display:'flex',flexDirection:'column',position:'sticky',top:0,height:'100vh',overflowY:'auto'}}>
         <div style={{display:'flex',alignItems:'center',gap:10,padding:'20px 18px 18px'}}>
           <div style={{width:32,height:32,borderRadius:9,background:'linear-gradient(135deg,var(--accent),var(--cyan))',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:16}}>🧭</div>
-          <div style={{fontSize:14,fontWeight:800,color:'#fff',letterSpacing:-.3,lineHeight:1.2}}>Planeja<br/>Merchant</div>
+          <div style={{fontSize:14,fontWeight:800,color:'#fff',letterSpacing:-.3,lineHeight:1.2}}>Planeja<br/>Camis</div>
         </div>
         <div style={{padding:'0 12px 10px'}}>
           <div style={{fontSize:9,fontWeight:700,color:'var(--sidebar-txt)',opacity:.6,textTransform:'uppercase',letterSpacing:.6,marginBottom:6}}>Time</div>
@@ -2080,6 +2081,10 @@ function AppMain({currentUser,onLogout}){
             <option value="__all__" style={{color:'#111'}}>🌐 Visão Geral</option>
             {teams.map(t=><option key={t.id} value={t.id} style={{color:'#111'}}>{t.nome}</option>)}
           </select>
+          {!isAllView&&<button onClick={()=>setShowRespMgr(true)} style={{width:'100%',marginTop:6,padding:'6px 9px',borderRadius:8,background:'rgba(255,255,255,.06)',border:'1px solid rgba(255,255,255,.1)',color:'#fff',fontSize:11,fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+            <span>👥 Responsáveis</span>
+            <span style={{opacity:.65,fontWeight:700}}>{resps.length}</span>
+          </button>}
           {isAdmin&&<button onClick={()=>setShowTeamMgr(true)} style={{width:'100%',marginTop:6,padding:'6px 9px',borderRadius:8,background:'transparent',border:'1px dashed rgba(255,255,255,.18)',color:'var(--sidebar-txt)',fontSize:11,fontWeight:600,cursor:'pointer'}}>⚙ Gerenciar times</button>}
         </div>
         <div style={{padding:'4px 12px',display:'flex',flexDirection:'column',gap:2,flex:1}}>
@@ -2152,7 +2157,7 @@ function AppMain({currentUser,onLogout}){
       {toast&&<Toast msg={toast} onDone={()=>setToast(null)}/>}
       {showIM&&<InitiativeManager tasks={tasks} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus} onClose={()=>setShowIM(false)}/>}
       {showUserMgr&&<UserManager currentUser={currentUser} users={users} setUsers={setUsers} onClose={()=>setShowUserMgr(false)}/>}
-      {showRespMgr&&<ResponsavelManager resps={resps} teamId={teamId} onSave={r=>{setResps(r);}} onClose={()=>setShowRespMgr(false)}/>}
+      {showRespMgr&&<ResponsavelManager resps={resps} teamId={teamId} teamNome={currentTeam?currentTeam.nome:''} onSave={r=>{setResps(r);}} onClose={()=>setShowRespMgr(false)}/>}
       {bulkCreate&&<BulkCreateModal grupo={bulkCreate} onSave={handleMultiSave} onClose={()=>setBulkCreate(null)} nextId={nextId} allResp={resps}/>}
       {showTeamMgr&&<TeamManager teams={teams} setTeams={setTeams} currentTeamId={teamId} onSelectTeam={setTeamId} onClose={()=>setShowTeamMgr(false)}/>}
     </div>
@@ -2165,8 +2170,10 @@ const DEFAULT_RESP=['Aleson','Camila','Diguinho','Islan','Lourene','Matheus'];
 function getResps(){try{const r=localStorage.getItem('pm_resps');return r?JSON.parse(r):DEFAULT_RESP;}catch(e){return DEFAULT_RESP;}}
 function saveResps(r){try{localStorage.setItem('pm_resps',JSON.stringify(r));}catch(e){}}
 
-function ResponsavelManager({resps:initResps,teamId,onSave,onClose}){
-  const[resps,setRespsState]=useState((initResps||getResps()).slice().sort((a,b)=>a.localeCompare(b,'pt-BR')));
+/* No cross-team defaults: responsáveis are always scoped to the selected team,
+   so an empty team must render empty instead of inheriting another team's people. */
+function ResponsavelManager({resps:initResps,teamId,teamNome,onSave,onClose}){
+  const[resps,setRespsState]=useState((initResps||[]).slice().sort((a,b)=>a.localeCompare(b,'pt-BR')));
   const[newName,setNewName]=useState('');
   const[editing,setEditing]=useState(null); // {idx, draft}
   const[confirmDel,setConfirmDel]=useState(null);
@@ -2208,8 +2215,8 @@ function ResponsavelManager({resps:initResps,teamId,onSave,onClose}){
 
         <div style={{padding:'18px 22px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
           <div>
-            <div style={{fontSize:15,fontWeight:700,color:'var(--txt1)'}}>Gerenciar Responsáveis</div>
-            <div style={{fontSize:11,color:'var(--txt3)',marginTop:2}}>{resps.length} cadastrado{resps.length!==1?'s':''}</div>
+            <div style={{fontSize:15,fontWeight:700,color:'var(--txt1)'}}>Responsáveis{teamNome?' · '+teamNome:''}</div>
+            <div style={{fontSize:11,color:'var(--txt3)',marginTop:2}}>{resps.length} cadastrado{resps.length!==1?'s':''} neste time</div>
           </div>
           <button onClick={onClose} style={{background:'none',border:'none',color:'var(--txt2)',fontSize:18,cursor:'pointer'}}>✕</button>
         </div>
