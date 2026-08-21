@@ -1656,9 +1656,101 @@ function DependenciasRiscosView({tasks,deps,setDeps,riscos,setRiscos,allG=[],can
   );
 }
 
+
+/* ── Gerenciador de Times ─────────────────────────────── */
+function TeamManager({teams,setTeams,teamId,setTeamId,onClose}){
+  const[form,setForm]=useState({nome:'',descricao:''});
+  const[editing,setEditing]=useState(null);
+  const[confirmDel,setConfirmDel]=useState(null);
+  const[busy,setBusy]=useState(false);
+
+  const add=async()=>{
+    if(!form.nome.trim()||busy)return;
+    setBusy(true);
+    const t=await createTeam(form.nome.trim(),form.descricao.trim());
+    setBusy(false);
+    if(t){setTeams(prev=>[...prev,t].sort((a,b)=>a.nome.localeCompare(b.nome,'pt-BR')));setForm({nome:'',descricao:''});}
+  };
+  const save=async()=>{
+    if(!editing.nome.trim())return;
+    await updateTeam(editing.id,editing.nome.trim(),editing.descricao.trim());
+    setTeams(prev=>prev.map(t=>t.id===editing.id?{...t,nome:editing.nome.trim(),descricao:editing.descricao.trim()}:t));
+    setEditing(null);
+  };
+  const del=async id=>{
+    await deleteTeam(id);
+    setTeams(prev=>prev.filter(t=>t.id!==id));
+    setConfirmDel(null);
+    if(teamId===id)setTeamId(null);
+  };
+
+  const inp={padding:'8px 10px',background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:7,color:'var(--txt1)',fontSize:12,outline:'none',boxSizing:'border-box'};
+
+  return(
+    <div onClick={onClose} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+      <div onClick={e=>e.stopPropagation()} style={{width:'100%',maxWidth:560,maxHeight:'85vh',background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:14,display:'flex',flexDirection:'column'}}>
+        <div style={{padding:'16px 22px',borderBottom:'1px solid var(--border)',fontSize:14,fontWeight:700,color:'var(--txt1)'}}>Gerenciar times</div>
+
+        <div style={{padding:'18px 22px',overflowY:'auto',flex:1}}>
+          <div style={{display:'flex',gap:8,marginBottom:18}}>
+            <input placeholder="Nome do time" value={form.nome} onChange={e=>setForm({...form,nome:e.target.value})} onKeyDown={e=>e.key==='Enter'&&add()} style={{...inp,flex:1}}/>
+            <input placeholder="Descrição (opcional)" value={form.descricao} onChange={e=>setForm({...form,descricao:e.target.value})} onKeyDown={e=>e.key==='Enter'&&add()} style={{...inp,flex:1}}/>
+            <button onClick={add} disabled={busy} style={{padding:'8px 16px',background:'linear-gradient(135deg,var(--accent),var(--cyan))',border:'none',borderRadius:7,color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>Criar</button>
+          </div>
+
+          <div style={{display:'flex',flexDirection:'column',gap:6}}>
+            {teams.length===0&&<div style={{fontSize:12,color:'var(--txt3)'}}>Nenhum time cadastrado ainda.</div>}
+            {teams.map(t=>(
+              <div key={t.id} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',borderRadius:9,background:t.id===teamId?'var(--bg3)':'var(--bg2)',border:'1px solid '+(t.id===teamId?'var(--accent)':'var(--border)')}}>
+                {editing&&editing.id===t.id
+                  ?<React.Fragment>
+                     <input value={editing.nome} onChange={e=>setEditing({...editing,nome:e.target.value})} style={{...inp,flex:1}}/>
+                     <input value={editing.descricao} onChange={e=>setEditing({...editing,descricao:e.target.value})} style={{...inp,flex:1}}/>
+                     <button onClick={save} style={{padding:'5px 12px',borderRadius:6,background:'rgba(5,150,105,.1)',border:'1px solid rgba(5,150,105,.25)',color:'#059669',fontSize:11,fontWeight:600,cursor:'pointer'}}>Salvar</button>
+                     <button onClick={()=>setEditing(null)} style={{padding:'5px 10px',borderRadius:6,background:'transparent',border:'1px solid var(--border)',color:'var(--txt2)',fontSize:11,cursor:'pointer'}}>Cancelar</button>
+                   </React.Fragment>
+                  :<React.Fragment>
+                     <div onClick={()=>{setTeamId(t.id);onClose();}} style={{flex:1,cursor:'pointer',minWidth:0}}>
+                       <div style={{fontSize:12,fontWeight:700,color:'var(--txt1)'}}>{t.nome}</div>
+                       {t.descricao&&<div style={{fontSize:10,color:'var(--txt3)'}}>{t.descricao}</div>}
+                     </div>
+                     {confirmDel===t.id
+                       ?<div style={{display:'flex',gap:5,alignItems:'center',flexShrink:0}}>
+                          <span style={{fontSize:11,color:'#DC2626'}}>Excluir tudo deste time?</span>
+                          <button onClick={()=>del(t.id)} style={{padding:'4px 10px',borderRadius:5,background:'#DC2626',border:'none',color:'#fff',fontSize:11,fontWeight:600,cursor:'pointer'}}>Sim</button>
+                          <button onClick={()=>setConfirmDel(null)} style={{padding:'4px 10px',borderRadius:5,background:'transparent',border:'1px solid var(--border)',color:'var(--txt2)',fontSize:11,cursor:'pointer'}}>Não</button>
+                        </div>
+                       :<div style={{display:'flex',gap:5,flexShrink:0}}>
+                          <button onClick={()=>setEditing({id:t.id,nome:t.nome,descricao:t.descricao||''})} style={{padding:'4px 9px',borderRadius:6,background:'rgba(180,83,9,.07)',border:'1px solid rgba(180,83,9,.2)',color:'#B45309',fontSize:11,cursor:'pointer'}}>Editar</button>
+                          <button onClick={()=>setConfirmDel(t.id)} style={{padding:'4px 9px',borderRadius:6,background:'rgba(220,38,38,.07)',border:'1px solid rgba(220,38,38,.2)',color:'#DC2626',fontSize:11,cursor:'pointer'}}>Excluir</button>
+                        </div>
+                     }
+                   </React.Fragment>
+                }
+              </div>
+            ))}
+          </div>
+          <div style={{fontSize:11,color:'var(--txt3)',marginTop:10}}>Clique no nome de um time para trocar o contexto ativo. Excluir um time remove permanentemente suas tarefas, responsáveis e status.</div>
+        </div>
+
+        <div style={{padding:'12px 22px',borderTop:'1px solid var(--border)',background:'var(--bg2)',borderRadius:'0 0 14px 14px'}}>
+          <button onClick={onClose} style={{padding:'8px 22px',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:8,color:'var(--txt2)',fontSize:12,fontWeight:600,cursor:'pointer'}}>Fechar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AppMain({currentUser,onLogout}){
-  const canEdit=currentUser.role==='admin'||currentUser.role==='editor';
   const isAdmin=currentUser.role==='admin';
+  const[teams,setTeams]=useState([]);
+  const[teamId,setTeamId]=useState(()=>{try{const v=localStorage.getItem('pm_team');return v==='all'?null:(v?Number(v):undefined);}catch(e){return undefined;}});
+  const[showTeamMgr,setShowTeamMgr]=useState(false);
+  const isOverview=teamId===null;
+  // sem time selecionado (Visao Geral) => somente leitura
+  const canEdit=(currentUser.role==='admin'||currentUser.role==='editor')&&!!teamId;
+  const team=teams.find(t=>t.id===teamId);
+  useEffect(()=>{try{localStorage.setItem('pm_team',teamId?String(teamId):'all');}catch(e){}},[teamId]);
   const[showUserMgr,setShowUserMgr]=useState(false);
   const[showRespMgr,setShowRespMgr]=useState(false);
   const[resps,setRespsLocal]=useState(DEFAULT_RESP);
@@ -1686,15 +1778,33 @@ function AppMain({currentUser,onLogout}){
   const[showIM,setShowIM]=useState(false);
   const[bulkCreate,setBulkCreate]=useState(null);
   const hasLocalData=true;
-  const restoreDefaults=async()=>{if(window.confirm('Restaurar dados originais?')){await dbSet('tasks',T0);window.location.reload();}};
+  const restoreDefaults=async()=>{window.location.reload();};
 
-  // Load all data from Supabase on mount
+  // Carrega a lista de times primeiro
   useEffect(()=>{
     (async()=>{
+      const ts=await loadTeams();
+      setTeams(ts);
+      setTeamId(cur=>{
+        if(cur===null)return null;                       // Visao Geral explicita
+        if(cur&&ts.some(t=>t.id===cur))return cur;        // time salvo ainda existe
+        return ts.length?ts[0].id:null;                   // fallback: primeiro time
+      });
+    })();
+  },[]);
+
+  // Carrega os dados do time ativo (recarrega ao trocar de time)
+  useEffect(()=>{
+    if(teamId===undefined)return;      // ainda resolvendo qual time
+    if(teamId===null&&!teams.length)return;
+    setLoaded(false);
+    (async()=>{
       try{
-        const[t,r,is,u,sp,tp,dp,rk]=await Promise.all([loadTasks(),loadResps(),dbGet('istatus'),dbGet('users'),loadStatusProduto(),dbGet('tipos'),dbGet('dependencias'),dbGet('riscos')]);
+        const ids=teams.map(t=>t.id);
+        const g=k=>teamId?dbGet(k,teamId):dbGetAll(k,ids);
+        const[t,r,is,u,sp,tp,dp,rk]=await Promise.all([loadTasks(teamId),loadResps(teamId),g('istatus'),dbGet('users'),loadStatusProduto(teamId),g('tipos'),g('dependencias'),g('riscos')]);
         if(Array.isArray(sp)&&sp.length>0)setStatusProduto(sp);
-        const td=Array.isArray(t)&&t.length>0?t:T0;
+        const td=Array.isArray(t)&&t.length>0?t:[];
         setTasks(td);
         setNextId(Math.max(...td.map(x=>x.id||0),0)+1);
         if(Array.isArray(r)&&r.length>0)setRespsLocal(r);
@@ -1703,19 +1813,20 @@ function AppMain({currentUser,onLogout}){
         if(tp&&typeof tp==='object')setTipos(tp);
         if(Array.isArray(dp))setDeps(dp);
         if(Array.isArray(rk))setRiscos(rk);
-      }catch(e){console.error('Load error:',e);setTasks(T0);setNextId(T0.length+1);}
+      }catch(e){console.error('Load error:',e);setTasks([]);setNextId(1);}
       setLoaded(true);
     })();
-  },[]);
+  },[teamId,teams]);
 
   // Save to Supabase (debounced)
-  useEffect(()=>{if(!loaded||!tasks.length)return;const t=setTimeout(()=>saveTasks(tasks),600);return()=>clearTimeout(t);},[tasks,loaded]);
-  useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('istatus',iStatus),600);return()=>clearTimeout(t);},[iStatus,loaded]);
-  useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('resps',resps),600);return()=>clearTimeout(t);},[resps,loaded]); // also syncs responsavel table
-  useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('users',users),600);return()=>clearTimeout(t);},[users,loaded]);
-  useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('tipos',tipos),600);return()=>clearTimeout(t);},[tipos,loaded]);
-  useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('dependencias',deps),600);return()=>clearTimeout(t);},[deps,loaded]);
-  useEffect(()=>{if(!loaded)return;const t=setTimeout(()=>dbSet('riscos',riscos),600);return()=>clearTimeout(t);},[riscos,loaded]);
+  const rw=loaded&&!!teamId; // grava so com time selecionado
+  useEffect(()=>{if(!rw||!tasks.length)return;const t=setTimeout(()=>saveTasks(tasks,teamId),600);return()=>clearTimeout(t);},[tasks,rw,teamId]);
+  useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('istatus',iStatus,teamId),600);return()=>clearTimeout(t);},[iStatus,rw,teamId]);
+  useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('resps',resps,teamId),600);return()=>clearTimeout(t);},[resps,rw,teamId]);
+  useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('users',users),600);return()=>clearTimeout(t);},[users,rw]);
+  useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('tipos',tipos,teamId),600);return()=>clearTimeout(t);},[tipos,rw,teamId]);
+  useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('dependencias',deps,teamId),600);return()=>clearTimeout(t);},[deps,rw,teamId]);
+  useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('riscos',riscos,teamId),600);return()=>clearTimeout(t);},[riscos,rw,teamId]);
   const active=useMemo(()=>tasks.filter(t=>!DONE.includes(t.s)),[tasks]);
   // Tasks split by initiative status
   const boardTasks=useMemo(()=>active.filter(t=>initView(iStatus[t.g])==='board'),[active,iStatus]);
@@ -1768,6 +1879,15 @@ function AppMain({currentUser,onLogout}){
           <div style={{width:32,height:32,borderRadius:9,background:'linear-gradient(135deg,var(--accent),var(--cyan))',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:16}}>🧭</div>
           <div style={{fontSize:14,fontWeight:800,color:'#fff',letterSpacing:-.3,lineHeight:1.2}}>Planeja<br/>Merchant</div>
         </div>
+        {/* ══ Seletor de time ══ */}
+        <div style={{padding:'0 12px 12px'}}>
+          <select value={teamId==null?'all':String(teamId)} onChange={e=>setTeamId(e.target.value==='all'?null:Number(e.target.value))}
+            style={{width:'100%',padding:'8px 10px',borderRadius:8,background:'rgba(255,255,255,.07)',border:'1px solid rgba(255,255,255,.12)',color:'#fff',fontSize:12,fontWeight:600,cursor:'pointer',outline:'none'}}>
+            <option value="all" style={{color:'#111'}}>🌐 Visão Geral</option>
+            {teams.map(t=><option key={t.id} value={String(t.id)} style={{color:'#111'}}>{t.nome}</option>)}
+          </select>
+          {isAdmin&&<button onClick={()=>setShowTeamMgr(true)} style={{width:'100%',marginTop:6,padding:'6px 10px',borderRadius:8,background:'transparent',border:'1px dashed rgba(255,255,255,.18)',color:'var(--sidebar-txt)',fontSize:11,fontWeight:600,cursor:'pointer'}}>⚙ Gerenciar times</button>}
+        </div>
         <div style={{padding:'4px 12px',display:'flex',flexDirection:'column',gap:2,flex:1}}>
           {VIEWS.map(([id,lbl,ico])=>(
             <button key={id} className="sb-item" onClick={()=>setView(id)} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 12px',borderRadius:8,border:'none',background:view===id?'rgba(255,255,255,.1)':'transparent',color:view===id?'var(--sidebar-txt-active)':'var(--sidebar-txt)',fontSize:13,fontWeight:view===id?700:500,cursor:'pointer',textAlign:'left',transition:'background .12s'}}>
@@ -1790,7 +1910,12 @@ function AppMain({currentUser,onLogout}){
       <div style={{flex:1,display:'flex',flexDirection:'column',minWidth:0}}>
         <div style={{background:'var(--bg1)',borderBottom:'1px solid var(--border)',boxShadow:'var(--shadow-sm)',position:'sticky',top:0,zIndex:100}}>
           <div style={{padding:'0 24px',display:'flex',alignItems:'center',justifyContent:'space-between',height:60,gap:12}}>
-            <div style={{fontSize:15,fontWeight:700,color:'var(--txt1)',flexShrink:0}}>{viewLbl}</div>
+            <div style={{display:'flex',alignItems:'center',gap:9,flexShrink:0,minWidth:0}}>
+              <div style={{fontSize:15,fontWeight:700,color:'var(--txt1)'}}>{viewLbl}</div>
+              <span style={{padding:'3px 10px',borderRadius:99,fontSize:10,fontWeight:700,whiteSpace:'nowrap',background:isOverview?'rgba(99,102,241,.12)':'var(--bg2)',border:'1px solid '+(isOverview?'rgba(99,102,241,.3)':'var(--border)'),color:isOverview?'#6366F1':'var(--txt2)'}}>
+                {isOverview?'🌐 Visão Geral · somente leitura':(team?team.nome:'Sem time')}
+              </span>
+            </div>
             <div style={{display:'flex',alignItems:'center',gap:6,flexShrink:0,flexWrap:'wrap',justifyContent:'flex-end'}}>
               {Object.entries(sCounts).map(([s,n])=>{const cfg=SC[s]||{c:'#9CA3AF',bg:'rgba(156,163,175,.08)',d:'#9CA3AF'};return(
                 <div key={s} style={{display:'inline-flex',alignItems:'center',gap:5,padding:'4px 11px',borderRadius:99,background:cfg.bg,border:'1px solid '+cfg.c+'44',whiteSpace:'nowrap',boxShadow:'var(--shadow-sm)'}}>
@@ -1834,8 +1959,9 @@ function AppMain({currentUser,onLogout}){
       <Drawer open={drawerOpen} onClose={()=>setDrawerOpen(false)} onSave={handleSave} grupos={allG} allResp={[...new Set([...resps,...tasks.map(t=>t.r).filter(Boolean)])].sort((a,b)=>a.localeCompare(b,'pt-BR'))} editing={editing} tipos={tipos}/>
       {toast&&<Toast msg={toast} onDone={()=>setToast(null)}/>}
       {showIM&&<InitiativeManager tasks={tasks} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus} onClose={()=>setShowIM(false)}/>}
+      {showTeamMgr&&<TeamManager teams={teams} setTeams={setTeams} teamId={teamId} setTeamId={setTeamId} onClose={()=>setShowTeamMgr(false)}/>}
       {showUserMgr&&<UserManager currentUser={currentUser} users={users} setUsers={setUsers} onClose={()=>setShowUserMgr(false)}/>}
-      {showRespMgr&&<ResponsavelManager resps={resps} onSave={r=>{setRespsLocal(r);}} onClose={()=>setShowRespMgr(false)}/>}
+      {showRespMgr&&<ResponsavelManager resps={resps} teamId={teamId} onSave={r=>{setRespsLocal(r);}} onClose={()=>setShowRespMgr(false)}/>}
       {bulkCreate&&<BulkCreateModal grupo={bulkCreate} onSave={handleMultiSave} onClose={()=>setBulkCreate(null)} nextId={nextId} allResp={resps}/>}
     </div>
   );
@@ -1847,7 +1973,7 @@ const DEFAULT_RESP=['Aleson','Camila','Diguinho','Islan','Lourene','Matheus'];
 function getResps(){try{const r=localStorage.getItem('pm_resps');return r?JSON.parse(r):DEFAULT_RESP;}catch(e){return DEFAULT_RESP;}}
 function saveResps(r){try{localStorage.setItem('pm_resps',JSON.stringify(r));}catch(e){}}
 
-function ResponsavelManager({resps:initResps,onSave,onClose}){
+function ResponsavelManager({resps:initResps,onSave,onClose,teamId}){
   const[resps,setRespsState]=useState((initResps||getResps()).slice().sort((a,b)=>a.localeCompare(b,'pt-BR')));
   const[newName,setNewName]=useState('');
   const[editing,setEditing]=useState(null); // {idx, draft}
@@ -1859,9 +1985,9 @@ function ResponsavelManager({resps:initResps,onSave,onClose}){
     const s=[...newList].sort((a,b)=>a.localeCompare(b,'pt-BR'));
     setRespsState(s);if(onSave)onSave(s);
     try{
-      if(added)await saveResp(added);
-      if(removed)await deleteResp(removed);
-      if(updated)await updateResp(updated.old,updated.new);
+      if(added)await saveResp(added,teamId);
+      if(removed)await deleteResp(removed,teamId);
+      if(updated)await updateResp(updated.old,updated.new,teamId);
     }catch(e){console.error('persist resp',e);}
   };
 
@@ -2042,23 +2168,52 @@ const roleFromSession=s=>(s&&s.user&&s.user.app_metadata&&s.user.app_metadata.ro
 const taskToRow=t=>({id:t.id,'Iniciativa':t.g||'','Card':t.c||'','Tarefa':t.t||'','Status':t.s||'Nao Iniciado','Responsavel':t.r||'','Versao':t.v||'','Acompanhamento':t.a||'','Link MR':t.mr||'',plan_data:t.plan||''});
 const rowToTask=r=>({id:r.id,g:r['Iniciativa']||'',c:r['Card']||'',t:r['Tarefa']||'',s:r['Status']||'Nao Iniciado',r:r['Responsavel']||'',v:r['Versao']||r.versao||'',a:r['Acompanhamento']||r.acompanhamento||'',mr:r['Link MR']||r.mr_links||'',plan:r.plan_data||''});
 
-async function loadTasks(){
-  const{data,error}=await sb.from('tasks').select('*').order('id',{ascending:true});
+/* ── Times ─────────────────────────────────────────────
+   teamId=null  =>  Visao Geral (agrega todos, leitura)
+   ───────────────────────────────────────────────────── */
+async function loadTeams(){
+  const{data,error}=await sb.from('teams').select('id,nome,descricao').order('nome',{ascending:true});
+  if(error){console.error('loadTeams',error);return[];}
+  return data||[];
+}
+async function createTeam(nome,descricao){
+  const{data,error}=await sb.from('teams').insert({nome,descricao:descricao||''}).select().single();
+  if(error){console.error('createTeam',error);return null;}
+  return data;
+}
+async function updateTeam(id,nome,descricao){
+  const{error}=await sb.from('teams').update({nome,descricao:descricao||''}).eq('id',id);
+  if(error)console.error('updateTeam',error);
+}
+async function deleteTeam(id){
+  const{error}=await sb.from('teams').delete().eq('id',id);
+  if(error)console.error('deleteTeam',error);
+}
+
+async function loadTasks(teamId){
+  let q=sb.from('tasks').select('*').order('id',{ascending:true});
+  if(teamId)q=q.eq('team_id',teamId);
+  const{data,error}=await q;
   if(error){console.error('loadTasks',error);return null;}
   return data&&data.length?data.map(rowToTask):null;
 }
-async function saveTasks(tasks){
-  const{error}=await sb.from('tasks').upsert(tasks.map(taskToRow),{onConflict:'id'});
+async function saveTasks(tasks,teamId){
+  if(!teamId)return; // Visao Geral e somente leitura
+  const rows=tasks.map(t=>({...taskToRow(t),team_id:teamId}));
+  const{error}=await sb.from('tasks').upsert(rows,{onConflict:'id'});
   if(error){console.error('saveTasks upsert',error);return;}
-  const{data:all,error:e2}=await sb.from('tasks').select('id');
+  // so remove tarefas DO TIME ATUAL — nunca de outros times
+  const{data:all,error:e2}=await sb.from('tasks').select('id').eq('team_id',teamId);
   if(e2){console.error('saveTasks select',e2);return;}
   const keep=new Set(tasks.map(t=>t.id));
   const del=all.filter(r=>!keep.has(r.id)).map(r=>r.id);
   if(del.length){const{error:e3}=await sb.from('tasks').delete().in('id',del);if(e3)console.error('saveTasks delete',e3);}
 }
-async function loadStatusProduto(){
+async function loadStatusProduto(teamId){
   for(const tbl of['status produto','status_produto']){
-    const{data,error}=await sb.from(tbl).select('id,nome').order('id',{ascending:true});
+    let q=sb.from(tbl).select('id,nome').order('id',{ascending:true});
+    if(teamId)q=q.eq('team_id',teamId);
+    const{data,error}=await q;
     if(error||!data||!data.length)continue;
     const merged={};
     data.forEach(r=>{merged[r.nome]=IS_CFG_BASE[r.nome]||{c:"#6B7280",bg:"rgba(107,114,128,.1)",dot:"#6B7280"};});
@@ -2068,22 +2223,46 @@ async function loadStatusProduto(){
   IS_CFG={...IS_CFG_BASE};window._iscfg={...IS_CFG_BASE};
   return Object.keys(IS_CFG_BASE);
 }
-async function loadResps(){
-  const{data,error}=await sb.from('responsavel').select('id,nome').order('nome',{ascending:true});
+async function loadResps(teamId){
+  let q=sb.from('responsavel').select('id,nome').order('nome',{ascending:true});
+  if(teamId)q=q.eq('team_id',teamId);
+  const{data,error}=await q;
   if(error){console.error('loadResps',error);return null;}
-  return data&&data.length?data.map(r=>r.nome):null;
+  return data&&data.length?[...new Set(data.map(r=>r.nome))]:null;
 }
-async function saveResp(nome){const{error}=await sb.from('responsavel').upsert({nome},{onConflict:'nome'});if(error)console.error('saveResp',error);}
-async function deleteResp(nome){const{error}=await sb.from('responsavel').delete().eq('nome',nome);if(error)console.error('deleteResp',error);}
-async function updateResp(o,n){const{error}=await sb.from('responsavel').update({nome:n}).eq('nome',o);if(error)console.error('updateResp',error);}
-async function dbGet(key){
-  const{data,error}=await sb.from('pm_data').select('value').eq('key',key).maybeSingle();
+async function saveResp(nome,teamId){
+  if(!teamId)return;
+  const{error}=await sb.from('responsavel').upsert({nome,team_id:teamId},{onConflict:'nome,team_id'});
+  if(error)console.error('saveResp',error);
+}
+async function deleteResp(nome,teamId){
+  if(!teamId)return;
+  const{error}=await sb.from('responsavel').delete().eq('nome',nome).eq('team_id',teamId);
+  if(error)console.error('deleteResp',error);
+}
+async function updateResp(o,n,teamId){
+  if(!teamId)return;
+  const{error}=await sb.from('responsavel').update({nome:n}).eq('nome',o).eq('team_id',teamId);
+  if(error)console.error('updateResp',error);
+}
+const nsKey=(key,teamId)=>teamId?teamId+':'+key:key;
+
+async function dbGet(key,teamId){
+  const{data,error}=await sb.from('pm_data').select('value').eq('key',nsKey(key,teamId)).maybeSingle();
   if(error){console.error('dbGet',key,error);return null;}
   return data?data.value:null;
 }
-async function dbSet(key,value){
-  const{error}=await sb.from('pm_data').upsert({key,value,updated_at:new Date().toISOString()},{onConflict:'key'});
+async function dbSet(key,value,teamId){
+  if(teamId===null)return; // Visao Geral nao grava
+  const{error}=await sb.from('pm_data').upsert({key:nsKey(key,teamId),value,updated_at:new Date().toISOString()},{onConflict:'key'});
   if(error)console.error('dbSet',key,error);
+}
+// Visao Geral: junta a chave de todos os times
+async function dbGetAll(key,teamIds){
+  const out=await Promise.all(teamIds.map(id=>dbGet(key,id)));
+  const objs=out.filter(v=>v&&typeof v==='object');
+  if(objs.some(Array.isArray))return objs.filter(Array.isArray).flat();
+  return Object.assign({},...objs);
 }
 
 
