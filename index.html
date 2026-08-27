@@ -1803,28 +1803,30 @@ function AppMain({currentUser,onLogout}){
   // Carrega a lista de times primeiro
   const teamInit=useRef(false);
   const[teamsErr,setTeamsErr]=useState(null);
+  const[teamsReady,setTeamsReady]=useState(false); // ja tentamos buscar os times?
   useEffect(()=>{
     (async()=>{
-      const{list:ts,error}=await loadTeams();
-      if(error)setTeamsErr(error.message||String(error));
+      let ts=[];
+      try{
+        const r=await loadTeams();
+        ts=r.list;
+        if(r.error)setTeamsErr(r.error.message||String(r.error));
+      }catch(e){setTeamsErr(e.message||String(e));}
       setTeams(ts);
-      // Só decide o time uma vez. Depois disso, a escolha do usuário é soberana
-      // e este efeito nunca mais sobrescreve teamId.
-      if(teamInit.current)return;
-      teamInit.current=true;
-      setTeamId(cur=>{
-        if(cur&&ts.some(t=>t.id===cur))return cur;   // time salvo ainda existe
-        if(cur===null&&ts.length)return ts[0].id;    // 'all' salvo, mas há times: entra num time real
-        return ts.length?ts[0].id:null;              // sem times: Visao Geral
-      });
+      if(!teamInit.current){
+        teamInit.current=true;
+        setTeamId(cur=>{
+          if(Number.isFinite(cur)&&ts.some(t=>t.id===cur))return cur; // time salvo ainda existe
+          return ts.length?ts[0].id:null;                            // sem times: Visao Geral
+        });
+      }
+      setTeamsReady(true); // libera o carregamento de dados, com ou sem times
     })();
   },[]);
 
   // Carrega os dados do time ativo (recarrega ao trocar de time)
   useEffect(()=>{
-    if(teamId===undefined)return;      // ainda resolvendo qual time
-    if(teamId!==null&&!Number.isFinite(teamId))return; // id invalido: aguarda auto-cura
-    if(teamId===null&&!teams.length)return;
+    if(!teamsReady)return;             // aguarda a resposta de loadTeams (uma vez só)
     setLoaded(false);
     (async()=>{
       try{
@@ -1845,7 +1847,17 @@ function AppMain({currentUser,onLogout}){
       }catch(e){console.error('Load error:',e);setTasks([]);setNextId(1);}
       setLoaded(true);
     })();
-  },[teamId,teams,validTeamId]);
+  },[teamsReady,teams,validTeamId]);
+
+  // Failsafe: a tela de carregamento nunca deve ficar presa para sempre
+  useEffect(()=>{
+    if(loaded)return;
+    const t=setTimeout(()=>{
+      console.warn('Timeout no carregamento — liberando a UI');
+      setLoaded(true);setTeamsReady(true);
+    },12000);
+    return()=>clearTimeout(t);
+  },[loaded]);
 
   // Save to Supabase (debounced)
   const rw=loaded&&!!validTeamId; // grava so com time valido selecionado
