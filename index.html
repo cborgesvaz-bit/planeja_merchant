@@ -430,7 +430,7 @@ function Drawer({open,onClose,onSave,grupos,allResp,editing,tipos={}}){
                   <Lbl c="Responsavel"/>
                   <select value={form.r} onChange={e=>set('r',e.target.value)} style={ist} onFocus={e=>e.target.style.borderColor='var(--accent)'} onBlur={e=>e.target.style.borderColor='var(--border)'}>
                     <option value="">— Sem responsavel —</option>
-                    {(allResp&&allResp.length?allResp:['Aleson','Camila','Diguinho','Islan','Lourene','Matheus']).map(r=><option key={r} value={r}>{r}</option>)}
+                    {(allResp||[]).map(r=><option key={r} value={r}>{r}</option>)}
                   </select>
                 </div>
               </div>
@@ -487,7 +487,7 @@ function Drawer({open,onClose,onSave,grupos,allResp,editing,tipos={}}){
   );
 }
 
-function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,openBulkCreate,statusProduto=[],tipos={}}){
+function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,openBulkCreate,statusProduto=[],tipos={},resps=[]}){
   const[search,setSearch]=useState('');
   const[fStatus,setFStatus]=useState([]);
   const[fResp,setFResp]=useState([]);
@@ -555,7 +555,7 @@ function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,ope
     const[bResp,setBResp]=useState('');
     const[bGrupo,setBGrupo]=useState('');
     const[bConfDel,setBConfDel]=useState(false);
-    const allResp2=[...new Set(tasks.map(t=>t.r).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+    const allResp2=[...resps].sort((a,b)=>a.localeCompare(b,'pt-BR')); // apenas o time ativo
     const allG2=[...new Set(tasks.map(t=>t.g))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
     const ist={width:'100%',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:7,color:'var(--txt1)',fontSize:13,padding:'7px 10px',outline:'none'};
     const applyBulk=()=>{
@@ -1211,7 +1211,7 @@ function HistoricoView({tasks,setTasks,openEdit,iStatus,setIStatus,statusProduto
 function BulkCreateModal({grupo,onSave,onClose,nextId,allResp}){
   const mkRow=()=>({id:Date.now()+Math.random(),t:'',c:'',s:'Nao Iniciado',r:''});
   const[rows,setRows]=useState([mkRow()]);
-  const allResp2=(allResp&&allResp.length?allResp:['Aleson','Camila','Diguinho','Islan','Lourene','Matheus']);
+  const allResp2=allResp||[];
 
   const setRow=(id,key,val)=>setRows(prev=>prev.map(r=>r.id===id?{...r,[key]:val}:r));
   const addRow=()=>setRows(prev=>[...prev,mkRow()]);
@@ -1774,7 +1774,8 @@ function AppMain({currentUser,onLogout}){
   },[teamId]);
   const[showUserMgr,setShowUserMgr]=useState(false);
   const[showRespMgr,setShowRespMgr]=useState(false);
-  const[resps,setRespsLocal]=useState(DEFAULT_RESP);
+  const respsCtl=useResponsaveis(teamId);
+  const resps=respsCtl.resps;
   const[users,setUsers]=useState(DEFAULT_USERS);
   const[statusProduto,setStatusProduto]=useState(['Backlog','Discovery Produto','Discovery Tecnico','Desenvolvimento','Homologacao','Pausado','Concluido']);
   const[theme,setTheme]=useState(()=>{try{return localStorage.getItem('pm_theme')||'light';}catch(e){return'light';}});
@@ -1834,12 +1835,11 @@ function AppMain({currentUser,onLogout}){
         const ids=teams.map(t=>t.id);
         const tid=validTeamId;
         const g=k=>tid?dbGet(k,tid):dbGetAll(k,ids);
-        const[t,r,is,u,sp,tp,dp,rk]=await Promise.all([loadTasks(tid),loadResps(tid),g('istatus'),dbGet('users'),loadStatusProduto(tid),g('tipos'),g('dependencias'),g('riscos')]);
+        const[t,is,u,sp,tp,dp,rk]=await Promise.all([loadTasks(tid),g('istatus'),dbGet('users'),loadStatusProduto(tid),g('tipos'),g('dependencias'),g('riscos')]);
         if(Array.isArray(sp)&&sp.length>0)setStatusProduto(sp);
         const td=Array.isArray(t)&&t.length>0?t:[];
         setTasks(td);
         setNextId(Math.max(...td.map(x=>x.id||0),0)+1);
-        if(Array.isArray(r)&&r.length>0)setRespsLocal(r);
         if(is&&typeof is==='object')setIStatus(is);
         if(u&&Array.isArray(u)&&u.length>0)setUsers(u);
         if(tp&&typeof tp==='object')setTipos(tp);
@@ -1864,7 +1864,6 @@ function AppMain({currentUser,onLogout}){
   const rw=loaded&&!!validTeamId; // grava so com time valido selecionado
   useEffect(()=>{if(!rw||!tasks.length)return;const t=setTimeout(()=>saveTasks(tasks,validTeamId),600);return()=>clearTimeout(t);},[tasks,rw,validTeamId]);
   useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('istatus',iStatus,validTeamId),600);return()=>clearTimeout(t);},[iStatus,rw,validTeamId]);
-  useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('resps',resps,validTeamId),600);return()=>clearTimeout(t);},[resps,rw,validTeamId]);
   useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('users',users),600);return()=>clearTimeout(t);},[users,rw]);
   useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('tipos',tipos,validTeamId),600);return()=>clearTimeout(t);},[tipos,rw,validTeamId]);
   useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('dependencias',deps,validTeamId),600);return()=>clearTimeout(t);},[deps,rw,validTeamId]);
@@ -2007,19 +2006,19 @@ function AppMain({currentUser,onLogout}){
         </div>
         <div style={{flex:1,minWidth:0}}>
           {view==='dashboard'?<DashboardView tasks={tasks} iStatus={iStatus} riscos={riscos} deps={deps}/>
-            :view==='board'?<BoardView tasks={boardTasks} setTasks={setTasks} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null} iStatus={iStatus} setIStatus={canEdit?setIStatus:null} openBulkCreate={canEdit?setBulkCreate:null} statusProduto={statusProduto} tipos={tipos}/>
+            :view==='board'?<BoardView tasks={boardTasks} setTasks={setTasks} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null} iStatus={iStatus} setIStatus={canEdit?setIStatus:null} openBulkCreate={canEdit?setBulkCreate:null} statusProduto={statusProduto} tipos={tipos} resps={resps}/>
             :view==='timeline'?<Timeline tasks={boardTasks} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus}/>
             :view==='backlog'?<BacklogView tasks={tasks} iStatus={iStatus} statusProduto={statusProduto} setIStatus={canEdit?setIStatus:null} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null}/>
             :view==='depriscos'?<DependenciasRiscosView tasks={tasks} deps={deps} setDeps={setDeps} riscos={riscos} setRiscos={setRiscos} allG={allG} canEdit={canEdit}/>
             :<HistoricoView tasks={historicoTasks} setTasks={setTasks} openEdit={openEdit} iStatus={iStatus} setIStatus={canEdit?setIStatus:null} statusProduto={statusProduto} openBulkCreate={canEdit?setBulkCreate:null} canEdit={canEdit}/>}
         </div>
       </div>
-      <Drawer open={drawerOpen} onClose={()=>setDrawerOpen(false)} onSave={handleSave} grupos={allG} allResp={[...new Set([...resps,...tasks.map(t=>t.r).filter(Boolean)])].sort((a,b)=>a.localeCompare(b,'pt-BR'))} editing={editing} tipos={tipos}/>
+      <Drawer open={drawerOpen} onClose={()=>setDrawerOpen(false)} onSave={handleSave} grupos={allG} allResp={[...new Set([...resps,...(editing&&editing.r?[editing.r]:[])])].sort((a,b)=>a.localeCompare(b,'pt-BR'))} editing={editing} tipos={tipos}/>
       {toast&&<Toast msg={toast} onDone={()=>setToast(null)}/>}
       {showIM&&<InitiativeManager tasks={tasks} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus} onClose={()=>setShowIM(false)}/>}
       {showTeamMgr&&<TeamManager teams={teams} setTeams={setTeams} teamId={validTeamId} setTeamId={setTeamId} onClose={()=>setShowTeamMgr(false)}/>}
       {showUserMgr&&<UserManager currentUser={currentUser} users={users} setUsers={setUsers} onClose={()=>setShowUserMgr(false)}/>}
-      {showRespMgr&&<ResponsavelManager resps={resps} teamId={validTeamId} onSave={r=>{setRespsLocal(r);}} onClose={()=>setShowRespMgr(false)}/>}
+      {showRespMgr&&<ResponsavelManager ctl={respsCtl} teamId={validTeamId} teamNome={team?team.nome:''} onClose={()=>setShowRespMgr(false)}/>}
       {bulkCreate&&<BulkCreateModal grupo={bulkCreate} onSave={handleMultiSave} onClose={()=>setBulkCreate(null)} nextId={nextId} allResp={resps}/>}
     </div>
   );
@@ -2027,46 +2026,32 @@ function AppMain({currentUser,onLogout}){
 
 
 /* ── Responsavel Manager ──────────────────────────────── */
-const DEFAULT_RESP=['Aleson','Camila','Diguinho','Islan','Lourene','Matheus'];
-function getResps(){try{const r=localStorage.getItem('pm_resps');return r?JSON.parse(r):DEFAULT_RESP;}catch(e){return DEFAULT_RESP;}}
-function saveResps(r){try{localStorage.setItem('pm_resps',JSON.stringify(r));}catch(e){}}
 
-function ResponsavelManager({resps:initResps,onSave,onClose,teamId}){
-  const[resps,setRespsState]=useState((initResps||getResps()).slice().sort((a,b)=>a.localeCompare(b,'pt-BR')));
+function ResponsavelManager({ctl,onClose,teamId,teamNome}){
+  const{resps,loading,error,add,remove,rename}=ctl;
   const[newName,setNewName]=useState('');
-  const[editing,setEditing]=useState(null); // {idx, draft}
+  const[editing,setEditing]=useState(null); // {idx, draft, err}
   const[confirmDel,setConfirmDel]=useState(null);
   const[err,setErr]=useState('');
   const inputRef=useRef(null);
+  const locked=!teamId; // Visao Geral nao tem quadro proprio
 
-  const persist=async(newList,{added,removed,updated}={})=>{
-    const s=[...newList].sort((a,b)=>a.localeCompare(b,'pt-BR'));
-    setRespsState(s);if(onSave)onSave(s);
-    try{
-      if(added)await saveResp(added,teamId);
-      if(removed)await deleteResp(removed,teamId);
-      if(updated)await updateResp(updated.old,updated.new,teamId);
-    }catch(e){console.error('persist resp',e);}
+  const doAdd=async()=>{
+    const{error}=await add(newName);
+    if(error){setErr(error.message);return;}
+    setNewName('');setErr('');
   };
-
-  const add=()=>{
-    const n=newName.trim();
-    if(!n){setErr('Nome obrigatório');return;}
-    if(resps.some(r=>r.toLowerCase()===n.toLowerCase())){setErr('Já cadastrado');return;}
-    persist([...resps,n],{added:n});setNewName('');setErr('');
-  };
-
-  const commitEdit=()=>{
+  const commitEdit=async()=>{
     if(!editing)return;
-    const n=editing.draft.trim();
-    if(!n){setEditing(null);return;}
-    if(resps.some((r,i)=>r.toLowerCase()===n.toLowerCase()&&i!==editing.idx)){setEditing(e=>({...e,err:'Já cadastrado'}));return;}
-    const upd=[...resps];upd[editing.idx]=n;persist(upd,{updated:{old:resps[editing.idx],new:n}});setEditing(null);
+    const alvo=resps[editing.idx], n=editing.draft.trim();
+    if(!n||n===alvo){setEditing(null);return;}
+    const{error}=await rename(alvo,n);
+    if(error){setEditing(e=>({...e,err:error.message}));return;}
+    setEditing(null);
   };
+  const del=async idx=>{await remove(resps[idx]);setConfirmDel(null);};
 
-  const del=idx=>{const nome=resps[idx];persist(resps.filter((_,i)=>i!==idx),{removed:nome});setConfirmDel(null);};
-
-  const ist={background:'var(--bg)',border:'1px solid var(--border)',borderRadius:8,color:'var(--txt1)',fontSize:13,padding:'7px 11px',outline:'none',flex:1};
+const ist={background:'var(--bg)',border:'1px solid var(--border)',borderRadius:8,color:'var(--txt1)',fontSize:13,padding:'7px 11px',outline:'none',flex:1};
 
   return(
     <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.5)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
@@ -2075,12 +2060,19 @@ function ResponsavelManager({resps:initResps,onSave,onClose,teamId}){
         <div style={{padding:'18px 22px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
           <div>
             <div style={{fontSize:15,fontWeight:700,color:'var(--txt1)'}}>Gerenciar Responsáveis</div>
-            <div style={{fontSize:11,color:'var(--txt3)',marginTop:2}}>{resps.length} cadastrado{resps.length!==1?'s':''}</div>
+            <div style={{fontSize:11,color:'var(--txt3)',marginTop:2}}>
+              {locked?'Selecione um time':(teamNome?teamNome+' · ':'')+resps.length+' pessoa'+(resps.length!==1?'s':'')}
+            </div>
           </div>
           <button onClick={onClose} style={{background:'none',border:'none',color:'var(--txt2)',fontSize:18,cursor:'pointer'}}>✕</button>
         </div>
 
         <div style={{flex:1,overflowY:'auto',padding:'18px 22px',display:'flex',flexDirection:'column',gap:16}}>
+
+          {locked&&<div style={{padding:'9px 12px',background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:8,fontSize:11.5,color:'var(--txt2)',lineHeight:1.5}}>
+            Cada time tem o seu próprio quadro de responsáveis. Selecione um time no menu lateral para gerenciá-lo.
+          </div>}
+          {error&&<div style={{padding:'9px 12px',background:'rgba(220,38,38,.08)',border:'1px solid rgba(220,38,38,.25)',borderRadius:8,fontSize:11.5,color:'#DC2626'}}>{error}</div>}
 
           {/* Add new */}
           <div>
@@ -2088,9 +2080,9 @@ function ResponsavelManager({resps:initResps,onSave,onClose,teamId}){
             <div style={{display:'flex',gap:8}}>
               <input ref={inputRef} value={newName} onChange={e=>{setNewName(e.target.value);setErr('');}}
                 placeholder="Ex: João Silva" style={ist}
-                onKeyDown={e=>{if(e.key==='Enter')add();}}
+                onKeyDown={e=>{if(e.key==='Enter')doAdd();}}
                 onFocus={e=>e.target.style.borderColor='var(--accent)'} onBlur={e=>e.target.style.borderColor='var(--border)'}/>
-              <button onClick={add} style={{padding:'7px 18px',background:'linear-gradient(135deg,var(--accent),var(--cyan))',border:'none',borderRadius:8,color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>+ Adicionar</button>
+              <button onClick={doAdd} disabled={locked} style={{padding:'7px 18px',opacity:locked?.5:1,background:'linear-gradient(135deg,var(--accent),var(--cyan))',border:'none',borderRadius:8,color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>+ Adicionar</button>
             </div>
             {err&&<div style={{fontSize:11,color:'#DC2626',marginTop:5}}>{err}</div>}
           </div>
@@ -2281,27 +2273,99 @@ async function loadStatusProduto(teamId){
   IS_CFG={...IS_CFG_BASE};window._iscfg={...IS_CFG_BASE};
   return Object.keys(IS_CFG_BASE);
 }
-async function loadResps(teamId){
-  let q=sb.from('responsavel').select('id,nome').order('nome',{ascending:true});
-  if(teamId)q=q.eq('team_id',teamId);
-  const{data,error}=await q;
-  if(error){console.error('loadResps',error);return null;}
-  return data&&data.length?[...new Set(data.map(r=>r.nome))]:null;
-}
-async function saveResp(nome,teamId){
-  if(!teamId)return;
-  const{error}=await sb.from('responsavel').upsert({nome,team_id:teamId},{onConflict:'nome,team_id'});
-  if(error)console.error('saveResp',error);
-}
-async function deleteResp(nome,teamId){
-  if(!teamId)return;
-  const{error}=await sb.from('responsavel').delete().eq('nome',nome).eq('team_id',teamId);
-  if(error)console.error('deleteResp',error);
-}
-async function updateResp(o,n,teamId){
-  if(!teamId)return;
-  const{error}=await sb.from('responsavel').update({nome:n}).eq('nome',o).eq('team_id',teamId);
-  if(error)console.error('updateResp',error);
+/* ══════════════════════════════════════════════════════════════
+   RESPONSAVEIS — sempre escopados por time.
+   Cada time tem o seu proprio quadro de pessoas. Nada e global,
+   nada vaza entre times e nao ha lista padrao de fallback.
+   Toda operacao exige um teamId valido.
+   ══════════════════════════════════════════════════════════════ */
+const respsApi={
+  async list(teamId){
+    if(!teamId)return{list:[],error:null};   // Visao Geral: nao ha dono unico
+    const{data,error}=await sb.from('responsavel')
+      .select('id,nome').eq('team_id',teamId).order('nome',{ascending:true});
+    if(error){console.error('respsApi.list',error);return{list:[],error};}
+    const list=[...new Set((data||[]).map(r=>(r.nome||'').trim()).filter(Boolean))]
+      .sort((a,b)=>a.localeCompare(b,'pt-BR'));
+    return{list,error:null};
+  },
+  async add(nome,teamId){
+    if(!teamId)return{error:new Error('Selecione um time para cadastrar responsaveis.')};
+    const n=(nome||'').trim();
+    if(!n)return{error:new Error('Nome obrigatorio.')};
+    const{error}=await sb.from('responsavel')
+      .upsert({nome:n,team_id:teamId},{onConflict:'nome,team_id'});
+    if(error)console.error('respsApi.add',error);
+    return{error};
+  },
+  async remove(nome,teamId){
+    if(!teamId)return{error:new Error('Selecione um time.')};
+    const{error}=await sb.from('responsavel')
+      .delete().eq('nome',nome).eq('team_id',teamId);
+    if(error)console.error('respsApi.remove',error);
+    return{error};
+  },
+  async rename(antigo,novo,teamId){
+    if(!teamId)return{error:new Error('Selecione um time.')};
+    const n=(novo||'').trim();
+    if(!n)return{error:new Error('Nome obrigatorio.')};
+    const{error}=await sb.from('responsavel')
+      .update({nome:n}).eq('nome',antigo).eq('team_id',teamId);
+    if(error)console.error('respsApi.rename',error);
+    return{error};
+  }
+};
+
+/* Hook que possui todo o ciclo de vida dos responsaveis do time ativo.
+   Troca de time => recarrega do zero, sem herdar a lista anterior.
+   Escritas sao otimistas com rollback em caso de erro. */
+function useResponsaveis(teamId){
+  const[resps,setResps]=useState([]);
+  const[loading,setLoading]=useState(false);
+  const[error,setError]=useState(null);
+  const reqId=useRef(0);
+
+  const reload=async()=>{
+    const my=++reqId.current;
+    setLoading(true);setError(null);
+    const{list,error}=await respsApi.list(teamId);
+    if(my!==reqId.current)return;            // resposta obsoleta: descarta
+    if(error)setError(error.message||String(error));
+    setResps(list);setLoading(false);
+  };
+
+  useEffect(()=>{
+    setResps([]);                            // limpa na hora: nunca mostra o time anterior
+    if(teamId===undefined)return;
+    reload();
+  },[teamId]);
+
+  const mutate=async(optimistic,run)=>{
+    const prev=resps;
+    setResps([...optimistic].sort((a,b)=>a.localeCompare(b,'pt-BR')));
+    const{error}=await run();
+    if(error){setResps(prev);setError(error.message||String(error));return{error};}
+    setError(null);return{error:null};
+  };
+
+  return{
+    resps,loading,error,reload,
+    add:nome=>{
+      const n=(nome||'').trim();
+      if(!n)return Promise.resolve({error:new Error('Nome obrigatorio.')});
+      if(resps.some(r=>r.toLowerCase()===n.toLowerCase()))
+        return Promise.resolve({error:new Error('Ja cadastrado neste time.')});
+      return mutate([...resps,n],()=>respsApi.add(n,teamId));
+    },
+    remove:nome=>mutate(resps.filter(r=>r!==nome),()=>respsApi.remove(nome,teamId)),
+    rename:(antigo,novo)=>{
+      const n=(novo||'').trim();
+      if(!n)return Promise.resolve({error:new Error('Nome obrigatorio.')});
+      if(resps.some(r=>r.toLowerCase()===n.toLowerCase()&&r!==antigo))
+        return Promise.resolve({error:new Error('Ja cadastrado neste time.')});
+      return mutate(resps.map(r=>r===antigo?n:r),()=>respsApi.rename(antigo,n,teamId));
+    }
+  };
 }
 const nsKey=(key,teamId)=>teamId?teamId+':'+key:key;
 
