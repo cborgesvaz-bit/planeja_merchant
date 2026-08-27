@@ -1750,7 +1750,10 @@ function AppMain({currentUser,onLogout}){
   // sem time selecionado (Visao Geral) => somente leitura
   const canEdit=(currentUser.role==='admin'||currentUser.role==='editor')&&!!teamId;
   const team=teams.find(t=>t.id===teamId);
-  useEffect(()=>{try{localStorage.setItem('pm_team',teamId?String(teamId):'all');}catch(e){}},[teamId]);
+  useEffect(()=>{
+    if(teamId===undefined)return; // ainda resolvendo: NAO sobrescrever o que esta salvo
+    try{localStorage.setItem('pm_team',teamId?String(teamId):'all');}catch(e){}
+  },[teamId]);
   const[showUserMgr,setShowUserMgr]=useState(false);
   const[showRespMgr,setShowRespMgr]=useState(false);
   const[resps,setRespsLocal]=useState(DEFAULT_RESP);
@@ -1781,14 +1784,21 @@ function AppMain({currentUser,onLogout}){
   const restoreDefaults=async()=>{window.location.reload();};
 
   // Carrega a lista de times primeiro
+  const teamInit=useRef(false);
+  const[teamsErr,setTeamsErr]=useState(null);
   useEffect(()=>{
     (async()=>{
-      const ts=await loadTeams();
+      const{list:ts,error}=await loadTeams();
+      if(error)setTeamsErr(error.message||String(error));
       setTeams(ts);
+      // Só decide o time uma vez. Depois disso, a escolha do usuário é soberana
+      // e este efeito nunca mais sobrescreve teamId.
+      if(teamInit.current)return;
+      teamInit.current=true;
       setTeamId(cur=>{
-        if(cur===null)return null;                       // Visao Geral explicita
-        if(cur&&ts.some(t=>t.id===cur))return cur;        // time salvo ainda existe
-        return ts.length?ts[0].id:null;                   // fallback: primeiro time
+        if(cur&&ts.some(t=>t.id===cur))return cur;   // time salvo ainda existe
+        if(cur===null&&ts.length)return ts[0].id;    // 'all' salvo, mas há times: entra num time real
+        return ts.length?ts[0].id:null;              // sem times: Visao Geral
       });
     })();
   },[]);
@@ -1908,6 +1918,18 @@ function AppMain({currentUser,onLogout}){
 
       {/* ══ Main column ══ */}
       <div style={{flex:1,display:'flex',flexDirection:'column',minWidth:0}}>
+        {!canEdit&&<div style={{padding:'9px 24px',background:'rgba(245,158,11,.1)',borderBottom:'1px solid rgba(245,158,11,.3)',color:'#B45309',fontSize:12,fontWeight:600,display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+          <span>⚠️</span>
+          <span>
+            {teamsErr
+              ? 'Não foi possível carregar a lista de times ('+teamsErr+'). Verifique as políticas de RLS da tabela "teams" no Supabase.'
+              : !teams.length
+                ? 'Nenhum time cadastrado. '+(isAdmin?'Use "⚙ Gerenciar times" na barra lateral para criar o primeiro time.':'Peça a um administrador para criar um time.')
+                : isOverview
+                  ? 'A Visão Geral agrega tarefas de todos os times e é somente leitura. Selecione um time no seletor da barra lateral para editar.'
+                  : 'Seu perfil ('+(ROLES[currentUser.role]?.label||currentUser.role)+') não tem permissão de edição.'}
+          </span>
+        </div>}
         <div style={{background:'var(--bg1)',borderBottom:'1px solid var(--border)',boxShadow:'var(--shadow-sm)',position:'sticky',top:0,zIndex:100}}>
           <div style={{padding:'0 24px',display:'flex',alignItems:'center',justifyContent:'space-between',height:60,gap:12}}>
             <div style={{display:'flex',alignItems:'center',gap:9,flexShrink:0,minWidth:0}}>
@@ -2173,8 +2195,8 @@ const rowToTask=r=>({id:r.id,g:r['Iniciativa']||'',c:r['Card']||'',t:r['Tarefa']
    ───────────────────────────────────────────────────── */
 async function loadTeams(){
   const{data,error}=await sb.from('teams').select('id,nome,descricao').order('nome',{ascending:true});
-  if(error){console.error('loadTeams',error);return[];}
-  return data||[];
+  if(error){console.error('loadTeams',error);return{list:[],error};}
+  return{list:data||[],error:null};
 }
 async function createTeam(nome,descricao){
   const{data,error}=await sb.from('teams').insert({nome,descricao:descricao||''}).select().single();
