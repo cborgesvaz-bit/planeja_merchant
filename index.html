@@ -2018,7 +2018,7 @@ function AppMain({currentUser,onLogout}){
       {showIM&&<InitiativeManager tasks={tasks} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus} onClose={()=>setShowIM(false)}/>}
       {showTeamMgr&&<TeamManager teams={teams} setTeams={setTeams} teamId={validTeamId} setTeamId={setTeamId} onClose={()=>setShowTeamMgr(false)}/>}
       {showUserMgr&&<UserManager currentUser={currentUser} users={users} setUsers={setUsers} onClose={()=>setShowUserMgr(false)}/>}
-      {showRespMgr&&<ResponsavelManager ctl={respsCtl} teamId={validTeamId} teamNome={team?team.nome:''} onClose={()=>setShowRespMgr(false)}/>}
+      {showRespMgr&&<ResponsavelManager ctl={respsCtl} teamId={validTeamId} teamNome={team?team.nome:''} teams={teams} setTeamId={setTeamId} tasks={tasks} setTasks={setTasks} canEdit={canEdit} onClose={()=>setShowRespMgr(false)}/>}
       {bulkCreate&&<BulkCreateModal grupo={bulkCreate} onSave={handleMultiSave} onClose={()=>setBulkCreate(null)} nextId={nextId} allResp={resps}/>}
     </div>
   );
@@ -2027,114 +2027,302 @@ function AppMain({currentUser,onLogout}){
 
 /* ── Responsavel Manager ──────────────────────────────── */
 
-function ResponsavelManager({ctl,onClose,teamId,teamNome}){
-  const{resps,loading,error,add,remove,rename}=ctl;
+function ResponsavelManager({ctl,onClose,teamId,teamNome,teams=[],setTeamId,tasks=[],setTasks,canEdit=true}){
+  const{resps,loading,error,add,remove,rename,reload}=ctl;
   const[newName,setNewName]=useState('');
-  const[editing,setEditing]=useState(null); // {idx, draft, err}
-  const[confirmDel,setConfirmDel]=useState(null);
+  const[bulk,setBulk]=useState('');
+  const[showBulk,setShowBulk]=useState(false);
+  const[search,setSearch]=useState('');
+  const[editing,setEditing]=useState(null);   // {nome,draft,err}
+  const[confirmDel,setConfirmDel]=useState(null); // {nome,reassign}
+  const[moving,setMoving]=useState(null);     // {nome,destino,modo}
   const[err,setErr]=useState('');
+  const[busy,setBusy]=useState(false);
+  const[flash,setFlash]=useState('');
   const inputRef=useRef(null);
-  const locked=!teamId; // Visao Geral nao tem quadro proprio
+  const locked=!teamId||!canEdit;
 
-  const doAdd=async()=>{
-    const{error}=await add(newName);
-    if(error){setErr(error.message);return;}
-    setNewName('');setErr('');
+  useEffect(()=>{if(flash){const t=setTimeout(()=>setFlash(''),2600);return()=>clearTimeout(t);}},[flash]);
+
+  const ATIVOS=['Finalizado','Entregue','Cancelado'];
+  const carga=useMemo(()=>{
+    const m={};
+    (tasks||[]).forEach(t=>{
+      const r=(t.r||'').trim();if(!r)return;
+      if(!m[r])m[r]={total:0,ativas:0};
+      m[r].total++;
+      if(!ATIVOS.includes(t.s))m[r].ativas++;
+    });
+    return m;
+  },[tasks]);
+
+  // pessoas que aparecem em tarefas mas nao estao cadastradas no quadro do time
+  const orfaos=useMemo(()=>
+    Object.keys(carga).filter(n=>!resps.some(r=>r.toLowerCase()===n.toLowerCase()))
+      .sort((a,b)=>a.localeCompare(b,'pt-BR'))
+  ,[carga,resps]);
+
+  const visiveis=useMemo(()=>{
+    const q=search.trim().toLowerCase();
+    return q?resps.filter(r=>r.toLowerCase().includes(q)):resps;
+  },[resps,search]);
+
+  const cascadeRename=(antigo,novo)=>{
+    if(!setTasks)return;
+    setTasks(prev=>prev.map(t=>(t.r||'').trim()===antigo?{...t,r:novo}:t));
   };
+  const cascadeReassign=(nome,destino)=>{
+    if(!setTasks)return;
+    setTasks(prev=>prev.map(t=>(t.r||'').trim()===nome?{...t,r:destino||''}:t));
+  };
+
+  const doAdd=async(nome)=>{
+    const n=(nome!==undefined?nome:newName);
+    const{error}=await add(n);
+    if(error){setErr(error.message);return false;}
+    setNewName('');setErr('');setFlash(n.trim()+' adicionado ao quadro.');
+    return true;
+  };
+
+  const doBulk=async()=>{
+    const nomes=[...new Set(bulk.split(/[\n,;]+/).map(s=>s.trim()).filter(Boolean))];
+    if(!nomes.length)return;
+    setBusy(true);
+    let ok=0,dup=0;
+    for(const n of nomes){
+      const{error}=await add(n);
+      if(error)dup++;else ok++;
+    }
+    setBusy(false);setBulk('');setShowBulk(false);
+    setFlash(ok+' adicionado(s)'+(dup?' · '+dup+' ignorado(s) (duplicado ou invalido)':''));
+  };
+
   const commitEdit=async()=>{
     if(!editing)return;
-    const alvo=resps[editing.idx], n=editing.draft.trim();
+    const alvo=editing.nome,n=editing.draft.trim();
     if(!n||n===alvo){setEditing(null);return;}
     const{error}=await rename(alvo,n);
     if(error){setEditing(e=>({...e,err:error.message}));return;}
+    cascadeRename(alvo,n);
     setEditing(null);
+    setFlash('Renomeado para '+n+'. '+((carga[alvo]&&carga[alvo].total)||0)+' tarefa(s) atualizada(s).');
   };
-  const del=async idx=>{await remove(resps[idx]);setConfirmDel(null);};
 
-const ist={background:'var(--bg)',border:'1px solid var(--border)',borderRadius:8,color:'var(--txt1)',fontSize:13,padding:'7px 11px',outline:'none',flex:1};
+  const del=async()=>{
+    const{nome,reassign}=confirmDel;
+    const{error}=await remove(nome);
+    if(error){setErr(error.message);setConfirmDel(null);return;}
+    cascadeReassign(nome,reassign||'');
+    setConfirmDel(null);
+    const n=(carga[nome]&&carga[nome].total)||0;
+    setFlash(nome+' removido.'+(n?' '+n+' tarefa(s) '+(reassign?'transferida(s) para '+reassign:'ficaram sem responsavel')+'.':''));
+  };
+
+  const doMove=async()=>{
+    const{nome,destino,modo}=moving;
+    if(!destino){setMoving(null);return;}
+    setBusy(true);
+    const{error}=await respsApi.add(nome,destino);
+    if(error){setBusy(false);setErr(error.message);return;}
+    if(modo==='mover'){
+      const{error:e2}=await remove(nome);
+      if(!e2)cascadeReassign(nome,'');
+    }
+    setBusy(false);setMoving(null);
+    const tn=(teams.find(t=>String(t.id)===String(destino))||{}).nome||'outro time';
+    setFlash(nome+(modo==='mover'?' movido para ':' copiado para ')+tn+'.');
+  };
+
+  const ist={background:'var(--bg)',border:'1px solid var(--border)',borderRadius:8,color:'var(--txt1)',fontSize:13,padding:'7px 11px',outline:'none',flex:1,boxSizing:'border-box'};
+  const btnGhost={padding:'4px 9px',borderRadius:6,background:'transparent',border:'1px solid var(--border)',color:'var(--txt2)',fontSize:11,cursor:'pointer'};
 
   return(
-    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.5)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
-      <div style={{background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:14,width:'min(480px,100%)',maxHeight:'88vh',display:'flex',flexDirection:'column',boxShadow:'0 16px 56px rgba(0,0,0,.2)'}}>
+    <div onClick={onClose} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.5)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:14,width:'min(620px,100%)',maxHeight:'90vh',display:'flex',flexDirection:'column',boxShadow:'0 16px 56px rgba(0,0,0,.2)'}}>
 
-        <div style={{padding:'18px 22px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
-          <div>
-            <div style={{fontSize:15,fontWeight:700,color:'var(--txt1)'}}>Gerenciar Responsáveis</div>
+        {/* Header */}
+        <div style={{padding:'16px 22px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,flexShrink:0}}>
+          <div style={{minWidth:0}}>
+            <div style={{fontSize:15,fontWeight:700,color:'var(--txt1)'}}>Responsáveis por time</div>
             <div style={{fontSize:11,color:'var(--txt3)',marginTop:2}}>
-              {locked?'Selecione um time':(teamNome?teamNome+' · ':'')+resps.length+' pessoa'+(resps.length!==1?'s':'')}
+              {locked?'Selecione um time para editar':(teamNome?teamNome+' · ':'')+resps.length+' pessoa'+(resps.length!==1?'s':'')}
             </div>
           </div>
-          <button onClick={onClose} style={{background:'none',border:'none',color:'var(--txt2)',fontSize:18,cursor:'pointer'}}>✕</button>
+          <div style={{display:'flex',alignItems:'center',gap:8}}>
+            {setTeamId&&teams.length>0&&
+              <select value={teamId?String(teamId):''} onChange={e=>{setEditing(null);setConfirmDel(null);setMoving(null);setErr('');setTeamId(e.target.value?e.target.value:null);}}
+                style={{padding:'6px 10px',borderRadius:8,border:'1px solid var(--border)',background:'var(--bg2)',color:'var(--txt1)',fontSize:12,fontWeight:600,cursor:'pointer',outline:'none',maxWidth:190}}>
+                <option value="">— Visão Geral (leitura) —</option>
+                {teams.map(t=><option key={t.id} value={String(t.id)}>{t.nome}</option>)}
+              </select>}
+            <button onClick={onClose} style={{background:'none',border:'none',color:'var(--txt2)',fontSize:18,cursor:'pointer'}}>✕</button>
+          </div>
         </div>
 
-        <div style={{flex:1,overflowY:'auto',padding:'18px 22px',display:'flex',flexDirection:'column',gap:16}}>
+        <div style={{flex:1,overflowY:'auto',padding:'16px 22px',display:'flex',flexDirection:'column',gap:14}}>
 
           {locked&&<div style={{padding:'9px 12px',background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:8,fontSize:11.5,color:'var(--txt2)',lineHeight:1.5}}>
-            Cada time tem o seu próprio quadro de responsáveis. Selecione um time no menu lateral para gerenciá-lo.
+            Cada time tem o seu próprio quadro de responsáveis. Escolha um time acima para adicionar, renomear ou remover pessoas.
           </div>}
           {error&&<div style={{padding:'9px 12px',background:'rgba(220,38,38,.08)',border:'1px solid rgba(220,38,38,.25)',borderRadius:8,fontSize:11.5,color:'#DC2626'}}>{error}</div>}
+          {flash&&<div style={{padding:'9px 12px',background:'rgba(5,150,105,.08)',border:'1px solid rgba(5,150,105,.25)',borderRadius:8,fontSize:11.5,color:'#059669'}}>{flash}</div>}
 
-          {/* Add new */}
-          <div>
-            <div style={{fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8,marginBottom:7}}>Novo responsável</div>
-            <div style={{display:'flex',gap:8}}>
-              <input ref={inputRef} value={newName} onChange={e=>{setNewName(e.target.value);setErr('');}}
-                placeholder="Ex: João Silva" style={ist}
-                onKeyDown={e=>{if(e.key==='Enter')doAdd();}}
-                onFocus={e=>e.target.style.borderColor='var(--accent)'} onBlur={e=>e.target.style.borderColor='var(--border)'}/>
-              <button onClick={doAdd} disabled={locked} style={{padding:'7px 18px',opacity:locked?.5:1,background:'linear-gradient(135deg,var(--accent),var(--cyan))',border:'none',borderRadius:8,color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>+ Adicionar</button>
+          {/* Novo responsavel */}
+          {!locked&&<div>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:7}}>
+              <div style={{fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8}}>Novo responsável</div>
+              <button onClick={()=>setShowBulk(v=>!v)} style={{...btnGhost,padding:'3px 8px'}}>{showBulk?'Cadastro simples':'Cadastro em lote'}</button>
             </div>
+            {showBulk
+              ?<div>
+                 <textarea value={bulk} onChange={e=>setBulk(e.target.value)} rows={4}
+                   placeholder={"Um nome por linha (ou separados por vírgula)\nEx:\nJoão Silva\nMaria Souza"}
+                   style={{...ist,width:'100%',flex:'none',resize:'vertical',fontFamily:'inherit',lineHeight:1.5}}/>
+                 <button onClick={doBulk} disabled={busy} style={{marginTop:7,padding:'7px 18px',background:'linear-gradient(135deg,var(--accent),var(--cyan))',border:'none',borderRadius:8,color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer',opacity:busy?.6:1}}>
+                   {busy?'Importando...':'Importar lista'}
+                 </button>
+               </div>
+              :<div style={{display:'flex',gap:8}}>
+                 <input ref={inputRef} value={newName} onChange={e=>{setNewName(e.target.value);setErr('');}}
+                   placeholder="Ex: João Silva" style={ist}
+                   onKeyDown={e=>{if(e.key==='Enter')doAdd();}}
+                   onFocus={e=>e.target.style.borderColor='var(--accent)'} onBlur={e=>e.target.style.borderColor='var(--border)'}/>
+                 <button onClick={()=>doAdd()} style={{padding:'7px 18px',background:'linear-gradient(135deg,var(--accent),var(--cyan))',border:'none',borderRadius:8,color:'#fff',fontSize:13,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>+ Adicionar</button>
+               </div>}
             {err&&<div style={{fontSize:11,color:'#DC2626',marginTop:5}}>{err}</div>}
-          </div>
+          </div>}
 
-          {/* List */}
+          {/* Lista */}
           <div>
-            <div style={{fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8,marginBottom:7}}>Lista de responsáveis</div>
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:7}}>
+              <div style={{fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8}}>Quadro do time</div>
+              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar pessoa..."
+                style={{...ist,padding:'5px 9px',fontSize:12,marginLeft:'auto',maxWidth:180}}/>
+            </div>
+
+            {loading&&<div style={{fontSize:12,color:'var(--txt3)',padding:'8px 0'}}>Carregando...</div>}
+            {!loading&&visiveis.length===0&&
+              <div style={{fontSize:12,color:'var(--txt3)',padding:'10px 0'}}>
+                {resps.length?'Nenhuma pessoa corresponde à busca.':'Nenhum responsável cadastrado neste time ainda.'}
+              </div>}
+
             <div style={{display:'flex',flexDirection:'column',gap:6}}>
-              {resps.map((r,idx)=>{
-                const isEd=editing&&editing.idx===idx;
-                const isDel=confirmDel===idx;
-                const initials=r.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+              {visiveis.map(r=>{
+                const isEd=editing&&editing.nome===r;
+                const isDel=confirmDel&&confirmDel.nome===r;
+                const isMv=moving&&moving.nome===r;
+                const c=carga[r]||{total:0,ativas:0};
+                const initials=r.split(' ').filter(Boolean).map(w=>w[0]).join('').slice(0,2).toUpperCase();
                 const hue=(r.charCodeAt(0)*47)%360;
                 return(
-                  <div key={idx} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 13px',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:9}}>
-                    <div style={{width:32,height:32,borderRadius:'50%',background:`hsl(${hue},40%,85%)`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:`hsl(${hue},40%,30%)`,flexShrink:0}}>
-                      {initials}
+                  <div key={r} style={{padding:'10px 13px',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:9}}>
+                    <div style={{display:'flex',alignItems:'center',gap:10}}>
+                      <div style={{width:32,height:32,borderRadius:'50%',background:`hsl(${hue},40%,85%)`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:`hsl(${hue},40%,30%)`,flexShrink:0}}>{initials}</div>
+
+                      {isEd
+                        ?<input autoFocus value={editing.draft} onChange={e=>setEditing(ed=>({...ed,draft:e.target.value,err:''}))}
+                            onKeyDown={e=>{if(e.key==='Enter')commitEdit();if(e.key==='Escape')setEditing(null);}}
+                            style={{...ist,padding:'4px 9px',fontWeight:600}}/>
+                        :<div style={{flex:1,minWidth:0}}>
+                           <div style={{fontSize:13,fontWeight:600,color:'var(--txt1)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r}</div>
+                           <div style={{fontSize:10.5,color:'var(--txt3)',marginTop:1}}>
+                             {c.total?c.ativas+' ativa'+(c.ativas!==1?'s':'')+' · '+c.total+' no total':'sem tarefas'}
+                           </div>
+                         </div>}
+
+                      {isEd
+                        ?<div style={{display:'flex',gap:5,flexShrink:0}}>
+                           <button onClick={commitEdit} style={{padding:'4px 11px',borderRadius:6,background:'rgba(5,150,105,.1)',border:'1px solid rgba(5,150,105,.25)',color:'#059669',fontSize:11,fontWeight:700,cursor:'pointer'}}>Salvar</button>
+                           <button onClick={()=>setEditing(null)} style={btnGhost}>Cancelar</button>
+                         </div>
+                        :(!isDel&&!isMv&&!locked)&&
+                         <div style={{display:'flex',gap:5,flexShrink:0}}>
+                           <button onClick={()=>setEditing({nome:r,draft:r,err:''})} style={{padding:'4px 9px',borderRadius:6,background:'rgba(180,83,9,.07)',border:'1px solid rgba(180,83,9,.2)',color:'#B45309',fontSize:11,cursor:'pointer'}}>Editar</button>
+                           {teams.length>1&&<button onClick={()=>setMoving({nome:r,destino:'',modo:'copiar'})} style={{padding:'4px 9px',borderRadius:6,background:'rgba(8,145,178,.07)',border:'1px solid rgba(8,145,178,.2)',color:'#0891B2',fontSize:11,cursor:'pointer'}}>Time</button>}
+                           <button onClick={()=>setConfirmDel({nome:r,reassign:''})} style={{padding:'4px 9px',borderRadius:6,background:'rgba(220,38,38,.07)',border:'1px solid rgba(220,38,38,.2)',color:'#DC2626',fontSize:11,cursor:'pointer'}}>Excluir</button>
+                         </div>}
                     </div>
-                    {isEd
-                      ?<input autoFocus value={editing.draft} onChange={e=>setEditing(ed=>({...ed,draft:e.target.value,err:''}))}
-                          onBlur={commitEdit} onKeyDown={e=>{if(e.key==='Enter')commitEdit();if(e.key==='Escape')setEditing(null);}}
-                          style={{...ist,padding:'4px 9px',fontSize:13,fontWeight:600}}/>
-                      :<span style={{flex:1,fontSize:13,fontWeight:500,color:'var(--txt1)'}}>{r}</span>
-                    }
-                    {editing&&editing.err&&isEd&&<span style={{fontSize:10,color:'#DC2626'}}>{editing.err}</span>}
-                    {isDel
-                      ?<div style={{display:'flex',gap:6,alignItems:'center',flexShrink:0}}>
-                         <span style={{fontSize:11,color:'#DC2626'}}>Excluir?</span>
-                         <button onClick={()=>del(idx)} style={{padding:'3px 9px',borderRadius:5,background:'#DC2626',border:'none',color:'#fff',fontSize:11,fontWeight:700,cursor:'pointer'}}>Sim</button>
-                         <button onClick={()=>setConfirmDel(null)} style={{padding:'3px 9px',borderRadius:5,background:'transparent',border:'1px solid var(--border)',color:'var(--txt2)',fontSize:11,cursor:'pointer'}}>Não</button>
-                       </div>
-                      :<div style={{display:'flex',gap:5,flexShrink:0}}>
-                         <button onClick={()=>setEditing({idx,draft:r,err:''})} style={{padding:'4px 9px',borderRadius:6,background:'rgba(180,83,9,.07)',border:'1px solid rgba(180,83,9,.2)',color:'#B45309',fontSize:11,cursor:'pointer'}}>Editar</button>
-                         <button onClick={()=>setConfirmDel(idx)} style={{padding:'4px 9px',borderRadius:6,background:'rgba(220,38,38,.07)',border:'1px solid rgba(220,38,38,.2)',color:'#DC2626',fontSize:11,cursor:'pointer'}}>Excluir</button>
-                       </div>
-                    }
+
+                    {isEd&&editing.err&&<div style={{fontSize:10.5,color:'#DC2626',marginTop:6}}>{editing.err}</div>}
+                    {isEd&&c.total>0&&<div style={{fontSize:10.5,color:'var(--txt3)',marginTop:6}}>Ao salvar, as {c.total} tarefa(s) desta pessoa serão renomeadas automaticamente.</div>}
+
+                    {/* Confirmacao de exclusao com reatribuicao */}
+                    {isDel&&
+                      <div style={{marginTop:10,paddingTop:10,borderTop:'1px dashed var(--border)'}}>
+                        <div style={{fontSize:11.5,color:'#DC2626',fontWeight:600,marginBottom:7}}>
+                          Excluir {r}?{c.total?` ${c.total} tarefa(s) estão atribuídas a esta pessoa.`:''}
+                        </div>
+                        {c.total>0&&
+                          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
+                            <span style={{fontSize:11,color:'var(--txt2)',whiteSpace:'nowrap'}}>Transferir para:</span>
+                            <select value={confirmDel.reassign} onChange={e=>setConfirmDel(d=>({...d,reassign:e.target.value}))}
+                              style={{...ist,padding:'5px 9px',fontSize:12}}>
+                              <option value="">— Deixar sem responsável —</option>
+                              {resps.filter(x=>x!==r).map(x=><option key={x} value={x}>{x}</option>)}
+                            </select>
+                          </div>}
+                        <div style={{display:'flex',gap:6}}>
+                          <button onClick={del} style={{padding:'5px 14px',borderRadius:6,background:'#DC2626',border:'none',color:'#fff',fontSize:11,fontWeight:700,cursor:'pointer'}}>Confirmar exclusão</button>
+                          <button onClick={()=>setConfirmDel(null)} style={btnGhost}>Cancelar</button>
+                        </div>
+                      </div>}
+
+                    {/* Mover / copiar para outro time */}
+                    {isMv&&
+                      <div style={{marginTop:10,paddingTop:10,borderTop:'1px dashed var(--border)'}}>
+                        <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:8}}>
+                          <select value={moving.modo} onChange={e=>setMoving(m=>({...m,modo:e.target.value}))}
+                            style={{...ist,flex:'none',width:110,padding:'5px 9px',fontSize:12}}>
+                            <option value="copiar">Copiar para</option>
+                            <option value="mover">Mover para</option>
+                          </select>
+                          <select value={moving.destino} onChange={e=>setMoving(m=>({...m,destino:e.target.value}))}
+                            style={{...ist,padding:'5px 9px',fontSize:12}}>
+                            <option value="">— Escolha o time —</option>
+                            {teams.filter(t=>String(t.id)!==String(teamId)).map(t=><option key={t.id} value={String(t.id)}>{t.nome}</option>)}
+                          </select>
+                        </div>
+                        <div style={{fontSize:10.5,color:'var(--txt3)',marginBottom:8}}>
+                          {moving.modo==='mover'
+                            ?'Mover remove a pessoa deste time; as tarefas dela aqui ficam sem responsável.'
+                            :'Copiar mantém a pessoa nos dois quadros. As tarefas não são alteradas.'}
+                        </div>
+                        <div style={{display:'flex',gap:6}}>
+                          <button onClick={doMove} disabled={busy||!moving.destino} style={{padding:'5px 14px',borderRadius:6,background:'var(--accent)',border:'none',color:'#fff',fontSize:11,fontWeight:700,cursor:'pointer',opacity:(busy||!moving.destino)?.5:1}}>Confirmar</button>
+                          <button onClick={()=>setMoving(null)} style={btnGhost}>Cancelar</button>
+                        </div>
+                      </div>}
                   </div>
                 );
               })}
             </div>
           </div>
+
+          {/* Orfaos: nomes usados em tarefas mas fora do quadro */}
+          {!locked&&orfaos.length>0&&
+            <div>
+              <div style={{fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8,marginBottom:7}}>Em tarefas, fora do quadro</div>
+              <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+                {orfaos.map(n=>(
+                  <button key={n} onClick={()=>doAdd(n)} title="Clique para cadastrar no quadro deste time"
+                    style={{padding:'4px 10px',borderRadius:99,background:'rgba(180,83,9,.07)',border:'1px dashed rgba(180,83,9,.35)',color:'#B45309',fontSize:11,cursor:'pointer'}}>
+                    + {n} <span style={{opacity:.7}}>({carga[n].total})</span>
+                  </button>
+                ))}
+              </div>
+              <div style={{fontSize:10.5,color:'var(--txt3)',marginTop:6}}>Essas pessoas aparecem em tarefas mas não estão cadastradas. Clique para incluir no quadro.</div>
+            </div>}
         </div>
 
-        <div style={{padding:'12px 22px',borderTop:'1px solid var(--border)',flexShrink:0,background:'var(--bg2)',borderRadius:'0 0 14px 14px'}}>
+        <div style={{padding:'12px 22px',borderTop:'1px solid var(--border)',flexShrink:0,background:'var(--bg2)',borderRadius:'0 0 14px 14px',display:'flex',gap:8,alignItems:'center'}}>
           <button onClick={onClose} style={{padding:'8px 22px',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:8,color:'var(--txt2)',fontSize:12,fontWeight:600,cursor:'pointer'}}>Fechar</button>
+          {reload&&<button onClick={reload} style={{...btnGhost,padding:'7px 14px',fontSize:12}}>Recarregar</button>}
+          <span style={{marginLeft:'auto',fontSize:10.5,color:'var(--txt3)'}}>Renomear e excluir refletem nas tarefas do time.</span>
         </div>
       </div>
     </div>
   );
 }
-
-
 function BacklogView({tasks,iStatus,statusProduto,setIStatus,openCreate,openEdit}){
   const backlogGrupos=useMemo(()=>{
     const grupos=[...new Set(tasks.map(t=>t.g))];
