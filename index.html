@@ -1744,15 +1744,32 @@ function TeamManager({teams,setTeams,teamId,setTeamId,onClose}){
 function AppMain({currentUser,onLogout}){
   const isAdmin=currentUser.role==='admin';
   const[teams,setTeams]=useState([]);
-  const[teamId,setTeamId]=useState(()=>{try{const v=localStorage.getItem('pm_team');return v==='all'?null:(v?Number(v):undefined);}catch(e){return undefined;}});
+  const[teamId,setTeamId]=useState(()=>{
+    try{
+      const v=localStorage.getItem('pm_team');
+      if(v===null||v===''||v==='all'||v==='null'||v==='undefined')return v==='all'?null:undefined;
+      const n=Number(v);
+      return Number.isFinite(n)&&n>0?n:undefined;   // nunca deixa NaN entrar no estado
+    }catch(e){return undefined;}
+  });
   const[showTeamMgr,setShowTeamMgr]=useState(false);
+  const validTeamId=Number.isFinite(teamId)&&teamId>0?teamId:null;
   const isOverview=teamId===null;
   // sem time selecionado (Visao Geral) => somente leitura
-  const canEdit=(currentUser.role==='admin'||currentUser.role==='editor')&&!!teamId;
-  const team=teams.find(t=>t.id===teamId);
+  const canEdit=(currentUser.role==='admin'||currentUser.role==='editor')&&!!validTeamId;
+  const team=teams.find(t=>t.id===validTeamId);
+  // Auto-cura: se teamId for invalido (NaN, id inexistente) e existirem times, entra no primeiro
+  useEffect(()=>{
+    if(!teams.length)return;
+    if(teamId===null)return;                 // Visao Geral escolhida de propósito
+    if(teamId===undefined)return;            // ainda resolvendo
+    if(teams.some(t=>t.id===teamId))return;  // já é válido
+    console.warn('teamId inválido, corrigindo:',teamId);
+    setTeamId(teams[0].id);
+  },[teamId,teams]);
   useEffect(()=>{
     if(teamId===undefined)return; // ainda resolvendo: NAO sobrescrever o que esta salvo
-    try{localStorage.setItem('pm_team',teamId?String(teamId):'all');}catch(e){}
+    try{localStorage.setItem('pm_team',Number.isFinite(teamId)&&teamId>0?String(teamId):'all');}catch(e){}
   },[teamId]);
   const[showUserMgr,setShowUserMgr]=useState(false);
   const[showRespMgr,setShowRespMgr]=useState(false);
@@ -1806,13 +1823,15 @@ function AppMain({currentUser,onLogout}){
   // Carrega os dados do time ativo (recarrega ao trocar de time)
   useEffect(()=>{
     if(teamId===undefined)return;      // ainda resolvendo qual time
+    if(teamId!==null&&!Number.isFinite(teamId))return; // id invalido: aguarda auto-cura
     if(teamId===null&&!teams.length)return;
     setLoaded(false);
     (async()=>{
       try{
         const ids=teams.map(t=>t.id);
-        const g=k=>teamId?dbGet(k,teamId):dbGetAll(k,ids);
-        const[t,r,is,u,sp,tp,dp,rk]=await Promise.all([loadTasks(teamId),loadResps(teamId),g('istatus'),dbGet('users'),loadStatusProduto(teamId),g('tipos'),g('dependencias'),g('riscos')]);
+        const tid=validTeamId;
+        const g=k=>tid?dbGet(k,tid):dbGetAll(k,ids);
+        const[t,r,is,u,sp,tp,dp,rk]=await Promise.all([loadTasks(tid),loadResps(tid),g('istatus'),dbGet('users'),loadStatusProduto(tid),g('tipos'),g('dependencias'),g('riscos')]);
         if(Array.isArray(sp)&&sp.length>0)setStatusProduto(sp);
         const td=Array.isArray(t)&&t.length>0?t:[];
         setTasks(td);
@@ -1826,17 +1845,17 @@ function AppMain({currentUser,onLogout}){
       }catch(e){console.error('Load error:',e);setTasks([]);setNextId(1);}
       setLoaded(true);
     })();
-  },[teamId,teams]);
+  },[teamId,teams,validTeamId]);
 
   // Save to Supabase (debounced)
-  const rw=loaded&&!!teamId; // grava so com time selecionado
-  useEffect(()=>{if(!rw||!tasks.length)return;const t=setTimeout(()=>saveTasks(tasks,teamId),600);return()=>clearTimeout(t);},[tasks,rw,teamId]);
-  useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('istatus',iStatus,teamId),600);return()=>clearTimeout(t);},[iStatus,rw,teamId]);
-  useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('resps',resps,teamId),600);return()=>clearTimeout(t);},[resps,rw,teamId]);
+  const rw=loaded&&!!validTeamId; // grava so com time valido selecionado
+  useEffect(()=>{if(!rw||!tasks.length)return;const t=setTimeout(()=>saveTasks(tasks,validTeamId),600);return()=>clearTimeout(t);},[tasks,rw,validTeamId]);
+  useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('istatus',iStatus,validTeamId),600);return()=>clearTimeout(t);},[iStatus,rw,validTeamId]);
+  useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('resps',resps,validTeamId),600);return()=>clearTimeout(t);},[resps,rw,validTeamId]);
   useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('users',users),600);return()=>clearTimeout(t);},[users,rw]);
-  useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('tipos',tipos,teamId),600);return()=>clearTimeout(t);},[tipos,rw,teamId]);
-  useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('dependencias',deps,teamId),600);return()=>clearTimeout(t);},[deps,rw,teamId]);
-  useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('riscos',riscos,teamId),600);return()=>clearTimeout(t);},[riscos,rw,teamId]);
+  useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('tipos',tipos,validTeamId),600);return()=>clearTimeout(t);},[tipos,rw,validTeamId]);
+  useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('dependencias',deps,validTeamId),600);return()=>clearTimeout(t);},[deps,rw,validTeamId]);
+  useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('riscos',riscos,validTeamId),600);return()=>clearTimeout(t);},[riscos,rw,validTeamId]);
   const active=useMemo(()=>tasks.filter(t=>!DONE.includes(t.s)),[tasks]);
   // Tasks split by initiative status
   const boardTasks=useMemo(()=>active.filter(t=>initView(iStatus[t.g])==='board'),[active,iStatus]);
@@ -1891,7 +1910,7 @@ function AppMain({currentUser,onLogout}){
         </div>
         {/* ══ Seletor de time ══ */}
         <div style={{padding:'0 12px 12px'}}>
-          <select value={teamId==null?'all':String(teamId)} onChange={e=>setTeamId(e.target.value==='all'?null:Number(e.target.value))}
+          <select value={validTeamId?String(validTeamId):'all'} onChange={e=>{const v=e.target.value;if(v==='all'){setTeamId(null);return;}const n=Number(v);if(Number.isFinite(n)&&n>0)setTeamId(n);}}
             style={{width:'100%',padding:'8px 10px',borderRadius:8,background:'rgba(255,255,255,.07)',border:'1px solid rgba(255,255,255,.12)',color:'#fff',fontSize:12,fontWeight:600,cursor:'pointer',outline:'none'}}>
             <option value="all" style={{color:'#111'}}>🌐 Visão Geral</option>
             {teams.map(t=><option key={t.id} value={String(t.id)} style={{color:'#111'}}>{t.nome}</option>)}
@@ -1926,9 +1945,15 @@ function AppMain({currentUser,onLogout}){
               : !teams.length
                 ? 'Nenhum time cadastrado. '+(isAdmin?'Use "⚙ Gerenciar times" na barra lateral para criar o primeiro time.':'Peça a um administrador para criar um time.')
                 : isOverview
-                  ? 'A Visão Geral agrega tarefas de todos os times e é somente leitura. Selecione um time no seletor da barra lateral para editar.'
-                  : 'Seu perfil ('+(ROLES[currentUser.role]?.label||currentUser.role)+') não tem permissão de edição.'}
+                  ? 'A Visão Geral agrega tarefas de todos os times e é somente leitura. Selecione um time abaixo para editar.'
+                  : (currentUser.role==='admin'||currentUser.role==='editor')
+                    ? 'Nenhum time válido selecionado (teamId='+String(teamId)+'). Selecione um time para editar.'
+                    : 'Seu perfil ('+(ROLES[currentUser.role]?.label||currentUser.role)+') não tem permissão de edição.'}
           </span>
+          {!!teams.length&&(currentUser.role==='admin'||currentUser.role==='editor')&&
+            <button onClick={()=>setTeamId(teams[0].id)} style={{marginLeft:'auto',padding:'4px 12px',borderRadius:99,border:'1px solid rgba(180,83,9,.4)',background:'rgba(255,255,255,.6)',color:'#B45309',fontSize:11,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
+              Entrar em "{teams[0].nome}"
+            </button>}
         </div>}
         <div style={{background:'var(--bg1)',borderBottom:'1px solid var(--border)',boxShadow:'var(--shadow-sm)',position:'sticky',top:0,zIndex:100}}>
           <div style={{padding:'0 24px',display:'flex',alignItems:'center',justifyContent:'space-between',height:60,gap:12}}>
@@ -1981,9 +2006,9 @@ function AppMain({currentUser,onLogout}){
       <Drawer open={drawerOpen} onClose={()=>setDrawerOpen(false)} onSave={handleSave} grupos={allG} allResp={[...new Set([...resps,...tasks.map(t=>t.r).filter(Boolean)])].sort((a,b)=>a.localeCompare(b,'pt-BR'))} editing={editing} tipos={tipos}/>
       {toast&&<Toast msg={toast} onDone={()=>setToast(null)}/>}
       {showIM&&<InitiativeManager tasks={tasks} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus} onClose={()=>setShowIM(false)}/>}
-      {showTeamMgr&&<TeamManager teams={teams} setTeams={setTeams} teamId={teamId} setTeamId={setTeamId} onClose={()=>setShowTeamMgr(false)}/>}
+      {showTeamMgr&&<TeamManager teams={teams} setTeams={setTeams} teamId={validTeamId} setTeamId={setTeamId} onClose={()=>setShowTeamMgr(false)}/>}
       {showUserMgr&&<UserManager currentUser={currentUser} users={users} setUsers={setUsers} onClose={()=>setShowUserMgr(false)}/>}
-      {showRespMgr&&<ResponsavelManager resps={resps} teamId={teamId} onSave={r=>{setRespsLocal(r);}} onClose={()=>setShowRespMgr(false)}/>}
+      {showRespMgr&&<ResponsavelManager resps={resps} teamId={validTeamId} onSave={r=>{setRespsLocal(r);}} onClose={()=>setShowRespMgr(false)}/>}
       {bulkCreate&&<BulkCreateModal grupo={bulkCreate} onSave={handleMultiSave} onClose={()=>setBulkCreate(null)} nextId={nextId} allResp={resps}/>}
     </div>
   );
