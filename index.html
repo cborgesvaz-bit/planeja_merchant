@@ -1747,13 +1747,14 @@ function AppMain({currentUser,onLogout}){
   const[teamId,setTeamId]=useState(()=>{
     try{
       const v=localStorage.getItem('pm_team');
-      if(v===null||v===''||v==='all'||v==='null'||v==='undefined')return v==='all'?null:undefined;
-      const n=Number(v);
-      return Number.isFinite(n)&&n>0?n:undefined;   // nunca deixa NaN entrar no estado
+      if(v==='all')return null;                                    // Visao Geral explicita
+      if(!v||v==='null'||v==='undefined'||v==='NaN')return undefined;
+      return v;                                                    // id e string (UUID)
     }catch(e){return undefined;}
   });
   const[showTeamMgr,setShowTeamMgr]=useState(false);
-  const validTeamId=Number.isFinite(teamId)&&teamId>0?teamId:null;
+  const isValidId=v=>typeof v==='string'&&v.length>0&&v!=='all';
+  const validTeamId=isValidId(teamId)?teamId:null;
   const isOverview=teamId===null;
   // sem time selecionado (Visao Geral) => somente leitura
   const canEdit=(currentUser.role==='admin'||currentUser.role==='editor')&&!!validTeamId;
@@ -1763,13 +1764,13 @@ function AppMain({currentUser,onLogout}){
     if(!teams.length)return;
     if(teamId===null)return;                 // Visao Geral escolhida de propósito
     if(teamId===undefined)return;            // ainda resolvendo
-    if(teams.some(t=>t.id===teamId))return;  // já é válido
+    if(teams.some(t=>String(t.id)===String(teamId)))return;  // já é válido
     console.warn('teamId inválido, corrigindo:',teamId);
     setTeamId(teams[0].id);
   },[teamId,teams]);
   useEffect(()=>{
     if(teamId===undefined)return; // ainda resolvendo: NAO sobrescrever o que esta salvo
-    try{localStorage.setItem('pm_team',Number.isFinite(teamId)&&teamId>0?String(teamId):'all');}catch(e){}
+    try{localStorage.setItem('pm_team',isValidId(teamId)?teamId:'all');}catch(e){}
   },[teamId]);
   const[showUserMgr,setShowUserMgr]=useState(false);
   const[showRespMgr,setShowRespMgr]=useState(false);
@@ -1816,7 +1817,7 @@ function AppMain({currentUser,onLogout}){
       if(!teamInit.current){
         teamInit.current=true;
         setTeamId(cur=>{
-          if(Number.isFinite(cur)&&ts.some(t=>t.id===cur))return cur; // time salvo ainda existe
+          if(cur&&ts.some(t=>String(t.id)===String(cur)))return cur; // time salvo ainda existe
           return ts.length?ts[0].id:null;                            // sem times: Visao Geral
         });
       }
@@ -1922,7 +1923,7 @@ function AppMain({currentUser,onLogout}){
         </div>
         {/* ══ Seletor de time ══ */}
         <div style={{padding:'0 12px 12px'}}>
-          <select value={validTeamId?String(validTeamId):'all'} onChange={e=>{const v=e.target.value;if(v==='all'){setTeamId(null);return;}const n=Number(v);if(Number.isFinite(n)&&n>0)setTeamId(n);}}
+          <select value={validTeamId||'all'} onChange={e=>{const v=e.target.value;setTeamId(v==='all'?null:v);}}
             style={{width:'100%',padding:'8px 10px',borderRadius:8,background:'rgba(255,255,255,.07)',border:'1px solid rgba(255,255,255,.12)',color:'#fff',fontSize:12,fontWeight:600,cursor:'pointer',outline:'none'}}>
             <option value="all" style={{color:'#111'}}>🌐 Visão Geral</option>
             {teams.map(t=><option key={t.id} value={String(t.id)} style={{color:'#111'}}>{t.nome}</option>)}
@@ -1949,22 +1950,20 @@ function AppMain({currentUser,onLogout}){
 
       {/* ══ Main column ══ */}
       <div style={{flex:1,display:'flex',flexDirection:'column',minWidth:0}}>
-        {!canEdit&&<div style={{padding:'9px 24px',background:'rgba(245,158,11,.1)',borderBottom:'1px solid rgba(245,158,11,.3)',color:'#B45309',fontSize:12,fontWeight:600,display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
-          <span>⚠️</span>
-          <span>
+        {!canEdit&&<div style={{padding:'7px 24px',background:'var(--bg1)',borderBottom:'1px solid var(--border)',color:'var(--txt2)',fontSize:11.5,fontWeight:500,display:'flex',alignItems:'center',gap:8}}>
+          <span style={{width:5,height:5,borderRadius:99,background:'var(--amber,#F59E0B)',flexShrink:0}}/>
+          <span style={{minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
             {teamsErr
-              ? 'Não foi possível carregar a lista de times ('+teamsErr+'). Verifique as políticas de RLS da tabela "teams" no Supabase.'
+              ? 'Falha ao carregar times — verifique as políticas de RLS no Supabase.'
               : !teams.length
-                ? 'Nenhum time cadastrado. '+(isAdmin?'Use "⚙ Gerenciar times" na barra lateral para criar o primeiro time.':'Peça a um administrador para criar um time.')
-                : isOverview
-                  ? 'A Visão Geral agrega tarefas de todos os times e é somente leitura. Selecione um time abaixo para editar.'
-                  : (currentUser.role==='admin'||currentUser.role==='editor')
-                    ? 'Nenhum time válido selecionado (teamId='+String(teamId)+'). Selecione um time para editar.'
-                    : 'Seu perfil ('+(ROLES[currentUser.role]?.label||currentUser.role)+') não tem permissão de edição.'}
+                ? (isAdmin?'Crie um time em “Gerenciar times” para começar a editar.':'Peça a um administrador para criar um time.')
+                : (currentUser.role==='admin'||currentUser.role==='editor')
+                  ? 'Visão Geral é somente leitura — selecione um time para editar.'
+                  : 'Seu perfil não permite edição.'}
           </span>
           {!!teams.length&&(currentUser.role==='admin'||currentUser.role==='editor')&&
-            <button onClick={()=>setTeamId(teams[0].id)} style={{marginLeft:'auto',padding:'4px 12px',borderRadius:99,border:'1px solid rgba(180,83,9,.4)',background:'rgba(255,255,255,.6)',color:'#B45309',fontSize:11,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>
-              Entrar em "{teams[0].nome}"
+            <button onClick={()=>setTeamId(teams[0].id)} style={{marginLeft:'auto',padding:'3px 10px',borderRadius:6,border:'1px solid var(--border)',background:'var(--bg2)',color:'var(--txt)',fontSize:11,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap',flexShrink:0}}>
+              Entrar em {teams[0].nome}
             </button>}
         </div>}
         <div style={{background:'var(--bg1)',borderBottom:'1px solid var(--border)',boxShadow:'var(--shadow-sm)',position:'sticky',top:0,zIndex:100}}>
