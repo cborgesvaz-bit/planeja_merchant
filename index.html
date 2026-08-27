@@ -1928,6 +1928,7 @@ function AppMain({currentUser,onLogout}){
             {teams.map(t=><option key={t.id} value={String(t.id)} style={{color:'#111'}}>{t.nome}</option>)}
           </select>
           {isAdmin&&<button onClick={()=>setShowTeamMgr(true)} style={{width:'100%',marginTop:6,padding:'6px 10px',borderRadius:8,background:'transparent',border:'1px dashed rgba(255,255,255,.18)',color:'var(--sidebar-txt)',fontSize:11,fontWeight:600,cursor:'pointer'}}>⚙ Gerenciar times</button>}
+          {isAdmin&&<button onClick={()=>setShowRespMgr(true)} style={{width:'100%',marginTop:6,padding:'6px 10px',borderRadius:8,background:'transparent',border:'1px dashed rgba(255,255,255,.18)',color:'var(--sidebar-txt)',fontSize:11,fontWeight:600,cursor:'pointer'}}>👥 Responsáveis do time</button>}
         </div>
         <div style={{padding:'4px 12px',display:'flex',flexDirection:'column',gap:2,flex:1}}>
           {VIEWS.map(([id,lbl,ico])=>(
