@@ -1483,17 +1483,40 @@ function DashboardView({tasks,iStatus={},riscos=[],deps=[]}){
   // ---- Visão detalhada por iniciativa ----
   const initiatives=useMemo(()=>{
     const map={};
+    const hoje=new Date();hoje.setHours(0,0,0,0);
+    const eachDate=(txt,cb)=>{
+      if(!txt)return;
+      txt.split('\n').forEach(line=>{
+        const m=line.match(/^(\d{1,2}\/\d{1,2})/);
+        if(!m)return;
+        const d=parseDate(m[1]);
+        if(d)cb(d,line);
+      });
+    };
     tasks.forEach(t=>{
       const g=t.g||'Sem iniciativa';
-      if(!map[g])map[g]={nome:g,status:iStatus[g]||'Backlog',total:0,done:0,bloq:0,andamento:0,resp:new Set()};
+      if(!map[g])map[g]={nome:g,status:iStatus[g]||'Backlog',total:0,done:0,bloq:0,andamento:0,resp:new Set(),ini:null,fim:null,prd:null,plan:false};
       const it=map[g];
       it.total++;
       if(DONE.includes(t.s))it.done++;
       else if(t.s==='Bloqueado')it.bloq++;
       else if(t.s==='Em andamento')it.andamento++;
       if(t.r)it.resp.add(t.r);
+      const marca=(d,line,planejado)=>{
+        if(!it.ini||d<it.ini)it.ini=d;
+        if(!it.fim||d>it.fim)it.fim=d;
+        if(/deploy em prd/i.test(line)&&(!it.prd||d>it.prd))it.prd=d;
+        if(planejado&&d>hoje)it.plan=true;
+      };
+      eachDate(t.a,(d,l)=>marca(d,l,false));
+      eachDate(t.plan,(d,l)=>marca(d,l,true));
     });
-    return Object.values(map).map(i=>({...i,resp:[...i.resp],pct:i.total?Math.round(i.done/i.total*100):0}));
+    return Object.values(map).map(i=>{
+      const concluida=INIT_DONE_S.includes(i.status)||(i.total>0&&i.done===i.total);
+      const fim=concluida?(i.prd||i.fim):i.fim;
+      const dias=i.ini&&fim?Math.round((fim-i.ini)/864e5)+1:null;
+      return{...i,resp:[...i.resp],pct:i.total?Math.round(i.done/i.total*100):0,concluida,fim,dias};
+    });
   },[tasks,iStatus]);
 
   const initColumns=useMemo(()=>{
@@ -1503,7 +1526,12 @@ function DashboardView({tasks,iStatus={},riscos=[],deps=[]}){
     return cols.map(s=>({
       status:s,
       cfg:getISCfg(s),
-      itens:initiatives.filter(i=>i.status===s).sort((a,b)=>b.total-a.total)
+      itens:initiatives.filter(i=>i.status===s).sort((a,b)=>{
+        if(a.ini&&b.ini&&+a.ini!==+b.ini)return a.ini-b.ini;
+        if(a.ini&&!b.ini)return-1;
+        if(!a.ini&&b.ini)return 1;
+        return b.total-a.total;
+      })
     }));
   },[initiatives]);
 
@@ -1599,8 +1627,23 @@ function DashboardView({tasks,iStatus={},riscos=[],deps=[]}){
                         </div>
                         <span style={{fontSize:10,fontWeight:700,color:'var(--txt2)',flexShrink:0}}>{it.pct}%</span>
                       </div>
+                      <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:6,fontSize:10,color:'var(--txt2)'}}>
+                        {it.ini
+                          ?<>
+                             <span title="Primeira movimentação registrada" style={{display:'inline-flex',alignItems:'center',gap:3}}>
+                               <span style={{width:5,height:5,borderRadius:'50%',background:'var(--txt3)'}}/>{fmtDate(it.ini)}
+                             </span>
+                             <span style={{flex:1,height:1,background:'var(--border)'}}/>
+                             <span title={it.concluida?'Deploy em PRD / última movimentação':'Última data prevista'} style={{display:'inline-flex',alignItems:'center',gap:3,fontWeight:600,color:it.concluida?'#059669':(it.plan?'#B45309':'var(--txt2)')}}>
+                               {fmtDate(it.fim)}
+                               <span style={{width:5,height:5,borderRadius:'50%',background:it.concluida?'#059669':(it.plan?'#B45309':'var(--txt3)')}}/>
+                             </span>
+                           </>
+                          :<span style={{color:'var(--txt3)',fontStyle:'italic'}}>Sem datas registradas</span>}
+                      </div>
                       <div style={{display:'flex',flexWrap:'wrap',gap:5,fontSize:10,color:'var(--txt3)'}}>
                         <span>{it.done}/{it.total} tarefas</span>
+                        {it.dias!==null&&<span>· {it.dias}d{it.concluida?'':' até agora'}</span>}
                         {it.andamento>0&&<span style={{color:'#0891B2',fontWeight:600}}>· {it.andamento} em andamento</span>}
                         {it.bloq>0&&<span style={{color:'#DC2626',fontWeight:700}}>· {it.bloq} bloqueada{it.bloq!==1?'s':''}</span>}
                       </div>
