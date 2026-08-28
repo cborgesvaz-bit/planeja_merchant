@@ -1480,6 +1480,36 @@ function DashboardView({tasks,iStatus={},riscos=[],deps=[]}){
   const riscosAltos=riscosAtivos.filter(r=>r.severidade==='Alta');
   const respCounts=useMemo(()=>{const m={};active.forEach(t=>{if(t.r)m[t.r]=(m[t.r]||0)+1;});return m;},[active]);
 
+  // ---- Visão detalhada por iniciativa ----
+  const initiatives=useMemo(()=>{
+    const map={};
+    tasks.forEach(t=>{
+      const g=t.g||'Sem iniciativa';
+      if(!map[g])map[g]={nome:g,status:iStatus[g]||'Backlog',total:0,done:0,bloq:0,andamento:0,resp:new Set()};
+      const it=map[g];
+      it.total++;
+      if(DONE.includes(t.s))it.done++;
+      else if(t.s==='Bloqueado')it.bloq++;
+      else if(t.s==='Em andamento')it.andamento++;
+      if(t.r)it.resp.add(t.r);
+    });
+    return Object.values(map).map(i=>({...i,resp:[...i.resp],pct:i.total?Math.round(i.done/i.total*100):0}));
+  },[tasks,iStatus]);
+
+  const initColumns=useMemo(()=>{
+    const ordem=[...INIT_BACKLOG_S,...INIT_BOARD_S,...INIT_DONE_S];
+    const presentes=[...new Set(initiatives.map(i=>i.status))];
+    const cols=ordem.filter(s=>presentes.includes(s)).concat(presentes.filter(s=>!ordem.includes(s)));
+    return cols.map(s=>({
+      status:s,
+      cfg:getISCfg(s),
+      itens:initiatives.filter(i=>i.status===s).sort((a,b)=>b.total-a.total)
+    }));
+  },[initiatives]);
+
+  const totalIniciativas=initiatives.length;
+  const iniciativasRisco=initiatives.filter(i=>i.bloq>0).length;
+
   return(
     <div style={{padding:'22px 24px 48px',maxWidth:1280,margin:'0 auto'}}>
       <div style={{display:'flex',gap:14,flexWrap:'wrap',marginBottom:24}}>
@@ -1527,6 +1557,62 @@ function DashboardView({tasks,iStatus={},riscos=[],deps=[]}){
               </div>
             ))}
         </div>
+      </div>
+
+      {/* ---- Visão por iniciativas ---- */}
+      <div style={{background:'#fff',border:'1px solid var(--border)',borderRadius:12,padding:'18px 20px',marginTop:20}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16,flexWrap:'wrap',gap:8}}>
+          <div>
+            <div style={{fontSize:12,fontWeight:700,color:'var(--txt1)'}}>Iniciativas por status</div>
+            <div style={{fontSize:11,color:'var(--txt3)',marginTop:2}}>
+              {totalIniciativas} iniciativa{totalIniciativas!==1?'s':''} · {initColumns.length} status em uso
+              {iniciativasRisco>0&&<span style={{color:'#DC2626',fontWeight:600}}> · {iniciativasRisco} com tarefa bloqueada</span>}
+            </div>
+          </div>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+            {initColumns.map(c=>(
+              <span key={c.status} style={{fontSize:10,fontWeight:600,padding:'3px 9px',borderRadius:99,background:c.cfg.bg,color:c.cfg.c,border:'1px solid '+c.cfg.c+'33'}}>
+                {c.itens.length} {c.status}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {totalIniciativas===0
+          ?<div style={{fontSize:12,color:'var(--txt3)',padding:'18px 0'}}>Nenhuma iniciativa cadastrada.</div>
+          :<div style={{display:'flex',gap:14,overflowX:'auto',paddingBottom:6}}>
+            {initColumns.map(col=>(
+              <div key={col.status} style={{flex:'0 0 262px',minWidth:262,background:'var(--bg2)',borderRadius:10,border:'1px solid var(--border)',borderTop:'3px solid '+col.cfg.c,padding:'11px 11px 8px'}}>
+                <div style={{display:'flex',alignItems:'center',gap:7,marginBottom:10}}>
+                  <span style={{width:7,height:7,borderRadius:'50%',background:col.cfg.c,flexShrink:0}}/>
+                  <span style={{fontSize:11,fontWeight:700,color:'var(--txt1)',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{col.status}</span>
+                  <span style={{fontSize:10,fontWeight:700,color:col.cfg.c,background:col.cfg.bg,padding:'1px 7px',borderRadius:99}}>{col.itens.length}</span>
+                </div>
+                {col.itens.length===0
+                  ?<div style={{fontSize:11,color:'var(--txt3)',padding:'8px 0'}}>—</div>
+                  :col.itens.map(it=>(
+                    <div key={it.nome} style={{background:'#fff',border:'1px solid var(--border)',borderRadius:8,padding:'9px 10px',marginBottom:8}}>
+                      <div title={it.nome} style={{fontSize:12,fontWeight:600,color:'var(--txt1)',lineHeight:1.35,marginBottom:7,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{it.nome}</div>
+                      <div style={{display:'flex',alignItems:'center',gap:7,marginBottom:6}}>
+                        <div style={{flex:1,height:5,background:'var(--bg2)',borderRadius:99,overflow:'hidden'}}>
+                          <div style={{width:it.pct+'%',height:'100%',background:it.pct===100?'#059669':col.cfg.c,borderRadius:99}}/>
+                        </div>
+                        <span style={{fontSize:10,fontWeight:700,color:'var(--txt2)',flexShrink:0}}>{it.pct}%</span>
+                      </div>
+                      <div style={{display:'flex',flexWrap:'wrap',gap:5,fontSize:10,color:'var(--txt3)'}}>
+                        <span>{it.done}/{it.total} tarefas</span>
+                        {it.andamento>0&&<span style={{color:'#0891B2',fontWeight:600}}>· {it.andamento} em andamento</span>}
+                        {it.bloq>0&&<span style={{color:'#DC2626',fontWeight:700}}>· {it.bloq} bloqueada{it.bloq!==1?'s':''}</span>}
+                      </div>
+                      {it.resp.length>0&&
+                        <div style={{fontSize:10,color:'var(--txt3)',marginTop:5,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                          {it.resp.slice(0,3).join(', ')}{it.resp.length>3?' +'+(it.resp.length-3):''}
+                        </div>}
+                    </div>
+                  ))}
+              </div>
+            ))}
+          </div>}
       </div>
     </div>
   );
