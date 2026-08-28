@@ -326,9 +326,21 @@ function weekStart(d){const x=new Date(d);const day=x.getDay();x.setDate(x.getDa
 function fmtDate(d){return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});}
 function IGNORE_RE(){return /card\s+criad[oa]/i;}
 function isIgnoredLine(text){return IGNORE_RE().test(text);}
+// "Card finalizado" vira fase PRD, mas se a tarefa ja tem um "Deploy PRD"
+// registrado a linha nao gera celula nova — fica so no historico (tooltip).
+function isFinalizadoLine(text){return /(card\s+)?finalizad[oa]/i.test(text);}
+function hasDeployPRD(task){
+  const scan=txt=>(txt||'').split('\n').some(l=>{
+    if(!/^(\d{1,2}\/\d{1,2})/.test(l))return false;
+    if(isIgnoredLine(l)||isFinalizadoLine(l))return false;
+    return detectPhase(l)==='PRD';
+  });
+  return scan(task.a)||scan(task.plan);
+}
 function detectPhase(text){
   const t=text.toLowerCase();
   if(t.includes('desbloqueado')||t.includes('desbloq'))return'UNBLOCK';
+  if(/(card\s+)?finalizad[oa]/.test(t))return'PRD';
   if(/\[.+\]/.test(text))return'CUSTOM';
   if((t.includes('mr validado')||t.includes('liberado mr'))&&t.includes('stg'))return'CUSTOM';
   if((t.includes('aguard')||t.includes('aguar.')||t.includes('aguard.'))&&t.includes('prd'))return'AGPRD';
@@ -348,10 +360,11 @@ function extractCustomLabel(text){
 }
 function getTaskDayMap(task){
   const map={};
+  const skipFinal=hasDeployPRD(task);
   // Read acompanhamento (Board) — read-only in timeline
-  if(task.a){task.a.split('\n').forEach(line=>{const m=line.match(/^(\d{1,2}\/\d{1,2})/);if(!m)return;if(isIgnoredLine(line))return;const date=parseDate(m[1]);if(!date)return;const dk=date.toISOString().slice(0,10);const ph=detectPhase(line);const cl=ph==='CUSTOM'?extractCustomLabel(line):null;const ex=map[dk];if(!ex||PH[ph].pr>PH[ex.ph].pr){map[dk]={ph,cl,lines:[line],src:'board'};}else if(ex.ph===ph){ex.lines.push(line);}});}
+  if(task.a){task.a.split('\n').forEach(line=>{const m=line.match(/^(\d{1,2}\/\d{1,2})/);if(!m)return;if(isIgnoredLine(line))return;if(skipFinal&&isFinalizadoLine(line))return;const date=parseDate(m[1]);if(!date)return;const dk=date.toISOString().slice(0,10);const ph=detectPhase(line);const cl=ph==='CUSTOM'?extractCustomLabel(line):null;const ex=map[dk];if(!ex||PH[ph].pr>PH[ex.ph].pr){map[dk]={ph,cl,lines:[line],src:'board'};}else if(ex.ph===ph){ex.lines.push(line);}});}
   // Read plan (Timeline-only) — overrides board for same day
-  if(task.plan){task.plan.split('\n').forEach(line=>{const m=line.match(/^(\d{1,2}\/\d{1,2})/);if(!m)return;if(isIgnoredLine(line))return;const date=parseDate(m[1]);if(!date)return;const dk=date.toISOString().slice(0,10);const ph=detectPhase(line);const cl=ph==='CUSTOM'?extractCustomLabel(line):null;map[dk]={ph,cl,lines:[line],src:'plan'};});}
+  if(task.plan){task.plan.split('\n').forEach(line=>{const m=line.match(/^(\d{1,2}\/\d{1,2})/);if(!m)return;if(isIgnoredLine(line))return;if(skipFinal&&isFinalizadoLine(line))return;const date=parseDate(m[1]);if(!date)return;const dk=date.toISOString().slice(0,10);const ph=detectPhase(line);const cl=ph==='CUSTOM'?extractCustomLabel(line):null;map[dk]={ph,cl,lines:[line],src:'plan'};});}
   return map;
 }
 function sortLog(lines){return[...lines].sort((a,b)=>{const p=s=>{const m=s.match(/^(\d{1,2})\/(\d{1,2})/);return m?(+m[2])*100+(+m[1]):0;};return p(b)-p(a);});}
