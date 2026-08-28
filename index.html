@@ -96,6 +96,29 @@ const TIPO_CFG={
   "Historia":{c:"#2563EB",bg:"rgba(37,99,235,.12)",lb:"História"},
   "Tarefa":{c:"#6B7280",bg:"rgba(107,114,128,.1)",lb:"Tarefa"},
 };
+/* ══════════════════════════════════════════════════════════════
+   BACKLOG KANBAN
+   O backlog e um fluxo proprio, independente do status da
+   iniciativa: uma tarefa pode estar parada no backlog mesmo que
+   a iniciativa dela ja esteja em Desenvolvimento.
+   Mapa `backlog` = {idTarefa: coluna}. String vazia = tirada do
+   backlog de proposito. Sem chave = regra automatica por status.
+   ══════════════════════════════════════════════════════════════ */
+const BK_COLS=[
+  {id:'ideias',      lb:'Ideias / Entrada', c:'#6B7280'},
+  {id:'refinamento', lb:'Refinamento',      c:'#9333EA'},
+  {id:'priorizado',  lb:'Priorizado',       c:'#2563EB'},
+  {id:'pronto',      lb:'Pronto para Dev',  c:'#059669'},
+];
+const BK_AUTO=['Nao Iniciado','Pendente'];          // entram sozinhas na 1a coluna
+const bkCol=(backlog,t)=>{
+  const v=backlog?backlog[t.id]:undefined;
+  if(v!==undefined&&v!==null)return v===''?null:v;   // decisao manual manda
+  if(DONE.includes(t.s))return null;
+  return BK_AUTO.includes(t.s)?BK_COLS[0].id:null;
+};
+const bkManual=(backlog,t)=>Boolean(backlog&&backlog[t.id]);   // parada no backlog de proposito
+
 /* Status rapido de subtarefa. "Concluido" grava 'Finalizado', que e o
    status ja reconhecido como concluido em todo o app (DONE). */
 const SUB_STATUS=[
@@ -2151,6 +2174,7 @@ function AppMain({currentUser,onLogout}){
   const[tipos,setTipos]=useState({});
   const[parents,setParents]=useState({});   // {idSubtarefa:idPai}
   const[ordem,setOrdem]=useState({});       // {iniciativa:[ids na ordem do backlog]}
+  const[backlog,setBacklog]=useState({});   // {idTarefa:coluna do kanban de backlog}
   const[deps,setDeps]=useState([]);
   const[riscos,setRiscos]=useState([]);
   const[nextId,setNextId]=useState(1);
@@ -2197,7 +2221,7 @@ function AppMain({currentUser,onLogout}){
         const ids=teams.map(t=>t.id);
         const tid=validTeamId;
         const g=k=>tid?dbGet(k,tid):dbGetAll(k,ids);
-        const[t,is,u,sp,tp,dp,rk,pa,od]=await Promise.all([loadTasks(tid),g('istatus'),dbGet('users'),loadStatusProduto(tid),g('tipos'),g('dependencias'),g('riscos'),g('parents'),g('ordem')]);
+        const[t,is,u,sp,tp,dp,rk,pa,od,bk]=await Promise.all([loadTasks(tid),g('istatus'),dbGet('users'),loadStatusProduto(tid),g('tipos'),g('dependencias'),g('riscos'),g('parents'),g('ordem'),g('backlog')]);
         if(Array.isArray(sp)&&sp.length>0)setStatusProduto(sp);
         const td=Array.isArray(t)&&t.length>0?t:[];
         setTasks(td);
@@ -2207,9 +2231,10 @@ function AppMain({currentUser,onLogout}){
         if(tp&&typeof tp==='object')setTipos(tp);
         setParents(pa&&typeof pa==='object'&&!Array.isArray(pa)?pa:{});
         setOrdem(od&&typeof od==='object'&&!Array.isArray(od)?od:{});
+        setBacklog(bk&&typeof bk==='object'&&!Array.isArray(bk)?bk:{});
         if(Array.isArray(dp))setDeps(dp);
         if(Array.isArray(rk))setRiscos(rk);
-      }catch(e){console.error('Load error:',e);setTasks([]);setNextId(1);setParents({});setOrdem({});}
+      }catch(e){console.error('Load error:',e);setTasks([]);setNextId(1);setParents({});setOrdem({});setBacklog({});}
       setLoaded(true);
     })();
   },[teamsReady,teams,validTeamId]);
@@ -2232,11 +2257,13 @@ function AppMain({currentUser,onLogout}){
   useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('tipos',tipos,validTeamId),600);return()=>clearTimeout(t);},[tipos,rw,validTeamId]);
   useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('parents',parents,validTeamId),600);return()=>clearTimeout(t);},[parents,rw,validTeamId]);
   useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('ordem',ordem,validTeamId),600);return()=>clearTimeout(t);},[ordem,rw,validTeamId]);
+  useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('backlog',backlog,validTeamId),600);return()=>clearTimeout(t);},[backlog,rw,validTeamId]);
   useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('dependencias',deps,validTeamId),600);return()=>clearTimeout(t);},[deps,rw,validTeamId]);
   useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('riscos',riscos,validTeamId),600);return()=>clearTimeout(t);},[riscos,rw,validTeamId]);
   const active=useMemo(()=>tasks.filter(t=>!DONE.includes(t.s)),[tasks]);
   // Tasks split by initiative status
-  const boardTasks=useMemo(()=>active.filter(t=>initView(iStatus[t.g])==='board'),[active,iStatus]);
+  // tarefas paradas no backlog de proposito saem do board, mesmo que a iniciativa esteja andando
+  const boardTasks=useMemo(()=>active.filter(t=>initView(iStatus[t.g])==='board'&&!bkManual(backlog,t)),[active,iStatus,backlog]);
   const historicoTasks=useMemo(()=>tasks.filter(t=>DONE.includes(t.s)||initView(iStatus[t.g])==='historico'),[tasks,iStatus]);
   const allG=useMemo(()=>[...new Set(tasks.map(t=>t.g))].sort((a,b)=>a.localeCompare(b,'pt-BR')),[tasks]);
   const sCounts=useMemo(()=>tasks.reduce((a,t)=>{a[t.s]=(a[t.s]||0)+1;return a;},{}),[tasks]);
@@ -2246,6 +2273,16 @@ function AppMain({currentUser,onLogout}){
   const openCreateSub=pai=>{setEditing({_preGroup:pai.g,_preParent:pai.id});setDrawerOpen(true);};
   // criacao rapida de subtarefa direto na interface do item pai
   const addSub=(pai,titulo)=>handleSave({t:titulo,c:'',v:'',s:'Pendente',r:'',g:pai.g,tipo:'Tarefa',parent:pai.id,a:''},null);
+  // tarefa criada direto numa coluna do kanban de backlog
+  const addBacklogTask=(grupo,titulo,col)=>{
+    const hoje=new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+    const id=Math.max(nextId,tasks.reduce((m,t)=>Math.max(m,t.id||0),0)+1);
+    setTasks(prev=>[...prev,{id,g:grupo,t:titulo,c:'',v:'',s:'Nao Iniciado',r:'',mr:'',a:hoje+' - Criado no backlog'}]);
+    setNextId(id+1);
+    setTipos(prev=>({...prev,[id]:'Tarefa'}));
+    setBacklog(prev=>({...prev,[id]:col}));
+    setToast('Tarefa adicionada ao backlog');
+  };
   const handleMultiSave=(items,startId)=>{
     const today=new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
     const newTasks=items.map((data,i)=>({...data,id:startId+i,a:data.a||today+' - Card criado'}));
@@ -2395,7 +2432,7 @@ function AppMain({currentUser,onLogout}){
           {view==='dashboard'?<DashboardView tasks={tasks} iStatus={iStatus} riscos={riscos} deps={deps}/>
             :view==='board'?<BoardView tasks={boardTasks} setTasks={setTasks} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null} iStatus={iStatus} setIStatus={canEdit?setIStatus:null} openBulkCreate={canEdit?setBulkCreate:null} statusProduto={statusProduto} tipos={tipos} resps={resps} parents={parents} openCreateSub={canEdit?openCreateSub:null} allTasks={tasks} onAddSub={canEdit?addSub:null}/>
             :view==='timeline'?<Timeline tasks={boardTasks} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus}/>
-            :view==='backlog'?<BacklogView tasks={tasks} iStatus={iStatus} statusProduto={statusProduto} setIStatus={canEdit?setIStatus:null} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null} parents={parents} tipos={tipos} ordem={ordem} setOrdem={canEdit?setOrdem:null} openCreateSub={canEdit?openCreateSub:null} setTasks={canEdit?setTasks:null} onAddSub={canEdit?addSub:null}/>
+            :view==='backlog'?<BacklogView tasks={tasks} iStatus={iStatus} statusProduto={statusProduto} setIStatus={canEdit?setIStatus:null} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null} parents={parents} tipos={tipos} ordem={ordem} setOrdem={canEdit?setOrdem:null} openCreateSub={canEdit?openCreateSub:null} setTasks={canEdit?setTasks:null} onAddSub={canEdit?addSub:null} backlog={backlog} setBacklog={canEdit?setBacklog:null} onAddBacklogTask={canEdit?addBacklogTask:null} allG={allG}/>
             :view==='depriscos'?<DependenciasRiscosView tasks={tasks} deps={deps} setDeps={setDeps} riscos={riscos} setRiscos={setRiscos} allG={allG} canEdit={canEdit}/>
             :<HistoricoView tasks={historicoTasks} setTasks={setTasks} openEdit={openEdit} iStatus={iStatus} setIStatus={canEdit?setIStatus:null} statusProduto={statusProduto} openBulkCreate={canEdit?setBulkCreate:null} canEdit={canEdit}/>}
         </div>
@@ -2711,7 +2748,157 @@ function ResponsavelManager({ctl,onClose,teamId,teamNome,teams=[],setTeamId,task
     </div>
   );
 }
-function BacklogView({tasks,iStatus,statusProduto,setIStatus,openCreate,openEdit,parents={},tipos={},ordem={},setOrdem,openCreateSub,setTasks,onAddSub}){
+
+/* ── Kanban do backlog ────────────────────────────────────────────────
+   Vive fora do ciclo da iniciativa: a coluna e uma propriedade da
+   tarefa, entao dá para acumular trabalho aqui enquanto a iniciativa
+   segue rodando no board. */
+function BacklogKanban({tasks,backlog={},setBacklog,setTasks,openEdit,tipos={},parents={},iStatus={},allG=[],onAddBacklogTask,trocaModo}){
+  const[busca,setBusca]=useState('');
+  const[fIni,setFIni]=useState('');
+  const[drag,setDrag]=useState(null);
+  const[sobre,setSobre]=useState(null);
+  const[addCol,setAddCol]=useState(null);
+  const[novo,setNovo]=useState('');
+  const[novaIni,setNovaIni]=useState(allG[0]||'Backlog Geral');
+  const canEdit=Boolean(setBacklog);
+
+  const itens=useMemo(()=>{
+    const q=busca.trim().toLowerCase();
+    return tasks.filter(t=>{
+      if(!bkCol(backlog,t))return false;
+      if(fIni&&t.g!==fIni)return false;
+      if(q&&!((t.t||'')+' '+(t.c||'')+' '+(t.r||'')+' '+(t.g||'')).toLowerCase().includes(q))return false;
+      return true;
+    });
+  },[tasks,backlog,busca,fIni]);
+
+  const porColuna=useMemo(()=>{
+    const m={};BK_COLS.forEach(c=>{m[c.id]=[];});
+    itens.forEach(t=>{const c=bkCol(backlog,t);if(m[c])m[c].push(t);else m[BK_COLS[0].id].push(t);});
+    Object.keys(m).forEach(k=>m[k].sort((a,b)=>tn(a.t)-tn(b.t)));
+    return m;
+  },[itens,backlog]);
+
+  const mover=(id,col)=>{if(setBacklog)setBacklog(prev=>({...prev,[id]:col}));};
+  const tirar=t=>{
+    if(!setBacklog)return;
+    setBacklog(prev=>({...prev,[t.id]:''}));
+    if(setTasks&&BK_AUTO.includes(t.s))setTasks(prev=>prev.map(x=>x.id===t.id?{...x,s:'Em andamento'}:x));
+  };
+  const passo=(t,dir)=>{
+    const i=BK_COLS.findIndex(c=>c.id===bkCol(backlog,t));
+    const j=i+dir;
+    if(j<0||j>=BK_COLS.length)return;
+    mover(t.id,BK_COLS[j].id);
+  };
+  const criar=col=>{
+    const v=novo.trim();
+    if(!v||!onAddBacklogTask)return;
+    onAddBacklogTask((novaIni||'Backlog Geral').trim(),v,col);
+    setNovo('');
+  };
+
+  const inis=[...new Set([...allG,'Backlog Geral'])].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+
+  return(
+    <div>
+      <div style={{padding:'14px 24px 12px',borderBottom:'1px solid var(--border)',background:'var(--bg1)',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+        {trocaModo}
+        <span style={{fontSize:13,fontWeight:700,color:'var(--txt1)'}}>Backlog</span>
+        <span style={{fontSize:11,color:'var(--txt3)',background:'var(--bg2)',border:'1px solid var(--border)',padding:'1px 9px',borderRadius:99}}>{itens.length} tarefa{itens.length!==1?'s':''}</span>
+        <span style={{fontSize:11,color:'var(--txt3)'}}>independente do status da iniciativa</span>
+        <div style={{display:'flex',gap:8,marginLeft:'auto',flexWrap:'wrap'}}>
+          <select value={fIni} onChange={e=>setFIni(e.target.value)} style={{padding:'6px 10px',borderRadius:8,border:'1px solid var(--border)',background:'var(--bg)',color:'var(--txt1)',fontSize:12,cursor:'pointer',outline:'none',maxWidth:220}}>
+            <option value="">Todas as iniciativas</option>
+            {[...new Set(tasks.filter(t=>bkCol(backlog,t)).map(t=>t.g))].sort((a,b)=>a.localeCompare(b,'pt-BR')).map(g=><option key={g} value={g}>{g}</option>)}
+          </select>
+          <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar no backlog..." style={{padding:'6px 11px',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:8,color:'var(--txt1)',fontSize:12.5,outline:'none',minWidth:190}}/>
+        </div>
+      </div>
+
+      {canEdit&&onAddBacklogTask&&
+        <div style={{padding:'10px 24px',borderBottom:'1px solid var(--border)',background:'var(--bg2)',display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+          <span style={{fontSize:11,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8}}>Nova tarefa em</span>
+          <select value={novaIni} onChange={e=>setNovaIni(e.target.value)} style={{padding:'6px 10px',borderRadius:8,border:'1px solid var(--border)',background:'var(--bg1)',color:'var(--txt1)',fontSize:12,cursor:'pointer',outline:'none',maxWidth:260}}>
+            {inis.map(g=><option key={g} value={g}>{g}</option>)}
+          </select>
+          <span style={{fontSize:11,color:'var(--txt3)'}}>use “Backlog Geral” para o que ainda não tem iniciativa definida</span>
+        </div>}
+
+      <div style={{padding:'16px 24px 48px',display:'flex',gap:14,overflowX:'auto',alignItems:'flex-start'}}>
+        {BK_COLS.map(col=>{
+          const lista=porColuna[col.id]||[];
+          const ativa=sobre===col.id;
+          return(
+            <div key={col.id}
+              onDragOver={e=>{if(drag!==null){e.preventDefault();setSobre(col.id);}}}
+              onDragLeave={()=>setSobre(x=>x===col.id?null:x)}
+              onDrop={e=>{e.preventDefault();if(drag!==null)mover(drag,col.id);setDrag(null);setSobre(null);}}
+              style={{flex:'0 0 290px',minWidth:290,background:ativa?'var(--bg3)':'var(--bg2)',borderRadius:12,border:'1px solid '+(ativa?col.c:'var(--border)'),borderTop:'3px solid '+col.c,padding:'11px 11px 9px',transition:'background .12s,border-color .12s'}}>
+              <div style={{display:'flex',alignItems:'center',gap:7,marginBottom:10}}>
+                <span style={{width:7,height:7,borderRadius:'50%',background:col.c,flexShrink:0}}/>
+                <span style={{fontSize:11.5,fontWeight:700,color:'var(--txt1)',flex:1}}>{col.lb}</span>
+                <span style={{fontSize:10,fontWeight:700,color:col.c,background:col.c+'1A',padding:'1px 8px',borderRadius:99}}>{lista.length}</span>
+              </div>
+
+              {lista.length===0&&<div style={{fontSize:11,color:'var(--txt3)',padding:'12px 0',textAlign:'center',border:'1px dashed var(--border)',borderRadius:8,marginBottom:8}}>Arraste tarefas para cá</div>}
+
+              {lista.map(t=>{
+                const cfg=SC[t.s]||{c:'#6B7280',bg:'rgba(107,114,128,.1)'};
+                const sub=parentOf(parents,t.id)!==null;
+                const iniAndando=iStatus[t.g]&&iStatus[t.g]!=='Backlog';
+                return(
+                  <div key={t.id} draggable={canEdit}
+                    onDragStart={()=>setDrag(t.id)} onDragEnd={()=>{setDrag(null);setSobre(null);}}
+                    style={{background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:9,padding:'9px 10px',marginBottom:8,cursor:canEdit?'grab':'default',opacity:drag===t.id?.45:1}}>
+                    <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:5,flexWrap:'wrap'}}>
+                      <TipoBadge tipo={tipos[t.id]}/>
+                      {sub&&<span title="Subtarefa" style={{color:'var(--txt3)',fontFamily:'monospace',fontSize:11}}>&#8627;</span>}
+                      {t.c&&<span style={{fontFamily:'monospace',fontSize:10,color:'var(--txt2)',background:'var(--bg)',padding:'1px 5px',borderRadius:4,border:'1px solid var(--border)'}}>{t.c}</span>}
+                      <span style={{fontSize:9.5,fontWeight:700,padding:'1px 7px',borderRadius:99,background:cfg.bg,color:cfg.c,marginLeft:'auto'}}>{t.s}</span>
+                    </div>
+                    <div onClick={()=>openEdit&&openEdit(t,{stopPropagation:()=>{}})} title={t.t}
+                      style={{fontSize:12.5,color:'var(--txt1)',lineHeight:1.35,marginBottom:6,cursor:openEdit?'pointer':'default',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{t.t}</div>
+                    <div title={iniAndando?'A iniciativa já está em '+iStatus[t.g]+' — a tarefa segue parada no backlog':'Iniciativa'}
+                      style={{fontSize:10,color:iniAndando?'#B45309':'var(--txt3)',marginBottom:6,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                      {iniAndando?'● ':''}{t.g}
+                    </div>
+                    <div style={{display:'flex',alignItems:'center',gap:6}}>
+                      <div style={{flex:1,minWidth:0}}><RespAvatars r={t.r} size={19}/></div>
+                      {canEdit&&<React.Fragment>
+                        <button onClick={()=>passo(t,-1)} title="Coluna anterior" style={{width:22,height:22,borderRadius:6,border:'1px solid var(--border)',background:'transparent',color:'var(--txt3)',cursor:'pointer',fontSize:9,padding:0}}>&#9664;</button>
+                        <button onClick={()=>passo(t,1)} title="Próxima coluna" style={{width:22,height:22,borderRadius:6,border:'1px solid var(--border)',background:'transparent',color:'var(--txt3)',cursor:'pointer',fontSize:9,padding:0}}>&#9654;</button>
+                        <button onClick={()=>tirar(t)} title="Puxar para o board (sai do backlog)" style={{padding:'2px 9px',borderRadius:6,border:'1px solid rgba(5,150,105,.25)',background:'rgba(5,150,105,.08)',color:'#059669',cursor:'pointer',fontSize:10.5,fontWeight:700,whiteSpace:'nowrap'}}>Puxar</button>
+                      </React.Fragment>}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {canEdit&&onAddBacklogTask&&(addCol===col.id
+                ?<div style={{display:'flex',flexDirection:'column',gap:6}}>
+                   <input autoFocus value={novo} onChange={e=>setNovo(e.target.value)}
+                     onKeyDown={e=>{if(e.key==='Enter')criar(col.id);if(e.key==='Escape'){setAddCol(null);setNovo('');}}}
+                     placeholder="Título da tarefa e Enter"
+                     style={{width:'100%',fontSize:12,padding:'6px 9px',borderRadius:7,border:'1px solid var(--accent)',background:'var(--bg1)',color:'var(--txt1)',outline:'none'}}/>
+                   <div style={{display:'flex',gap:6}}>
+                     <button onClick={()=>criar(col.id)} disabled={!novo.trim()} style={{flex:1,padding:'5px 0',borderRadius:7,border:'none',background:novo.trim()?'var(--accent)':'var(--bg)',color:novo.trim()?'#fff':'var(--txt3)',fontSize:11.5,fontWeight:700,cursor:novo.trim()?'pointer':'default'}}>Adicionar</button>
+                     <button onClick={()=>{setAddCol(null);setNovo('');}} style={{padding:'5px 12px',borderRadius:7,border:'1px solid var(--border)',background:'transparent',color:'var(--txt2)',fontSize:11.5,cursor:'pointer'}}>Cancelar</button>
+                   </div>
+                 </div>
+                :<button onClick={()=>{setAddCol(col.id);setNovo('');}} style={{width:'100%',padding:'6px 0',borderRadius:7,border:'1px dashed var(--border2)',background:'transparent',color:'var(--txt3)',fontSize:11.5,fontWeight:600,cursor:'pointer'}}>+ Adicionar tarefa</button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function BacklogView({tasks,iStatus,statusProduto,setIStatus,openCreate,openEdit,parents={},tipos={},ordem={},setOrdem,openCreateSub,setTasks,onAddSub,backlog={},setBacklog,onAddBacklogTask,allG=[]}){
+  const[modo,setModo]=useState('kanban');
   const[busca,setBusca]=useState('');
   const[fechadas,setFechadas]=useState(new Set());
   const[subAberto,setSubAberto]=useState(null);   // id do pai com o campo de subtarefa aberto
@@ -2773,10 +2960,23 @@ function BacklogView({tasks,iStatus,statusProduto,setIStatus,openCreate,openEdit
   const SCOL={"Em andamento":"#0891B2","Bloqueado":"#DC2626","Nao Iniciado":"#6B7280","Aguard. Deploy PRD":"#B45309","Paralisado":"#EA580C","Finalizado":"#059669","Entregue":"#047857","Deploy PRD":"#0369A1","Pendente":"#7C3AED"};
   const btnIco={width:20,height:18,borderRadius:5,background:'transparent',border:'1px solid var(--border)',color:'var(--txt3)',cursor:'pointer',fontSize:9,lineHeight:1,display:'flex',alignItems:'center',justifyContent:'center',padding:0};
 
+  const trocaModo=(
+    <div style={{display:'flex',gap:4,background:'var(--bg)',border:'1px solid var(--border2)',borderRadius:9,padding:3}}>
+      {[['kanban','Kanban'],['lista','Por iniciativa']].map(([m,lbl])=>(
+        <button key={m} onClick={()=>setModo(m)} style={{padding:'5px 12px',borderRadius:7,border:'none',fontSize:11.5,fontWeight:600,cursor:'pointer',background:modo===m?'var(--bg3)':'transparent',color:modo===m?'var(--accent)':'var(--txt2)'}}>{lbl}</button>
+      ))}
+    </div>
+  );
+
+  if(modo==='kanban')return <BacklogKanban tasks={tasks} backlog={backlog} setBacklog={setBacklog} setTasks={setTasks}
+    openEdit={openEdit} tipos={tipos} parents={parents} iStatus={iStatus} allG={allG}
+    onAddBacklogTask={onAddBacklogTask} trocaModo={trocaModo}/>;
+
   return(
     <div>
       <div style={{padding:'14px 24px 12px',borderBottom:'1px solid var(--border)',background:'var(--bg1)',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:10}}>
         <div style={{display:'flex',alignItems:'center',gap:10}}>
+          {trocaModo}
           <div style={{width:8,height:8,borderRadius:'50%',background:'#6B7280'}}/>
           <span style={{fontSize:13,fontWeight:700,color:'var(--txt1)'}}>Backlog de Iniciativas</span>
           <span style={{fontSize:11,color:'var(--txt3)',background:'var(--bg2)',border:'1px solid var(--border)',padding:'1px 9px',borderRadius:99}}>{backlogGrupos.length} iniciativa{backlogGrupos.length!==1?'s':''} · {allTasks.length} tarefa{allTasks.length!==1?'s':''}</span>
