@@ -1898,24 +1898,30 @@ function DashboardView({tasks,iStatus={},riscos=[],deps=[]}){
               <BarRow key={r} label={r} n={n} total={active.length} color="var(--cyan)"/>
             ))}
         </div>
-        <div style={{flex:'1 1 380px',background:'#fff',border:'1px solid var(--border)',borderRadius:12,padding:'18px 20px'}}>
-          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
-            <div style={{fontSize:12,fontWeight:700,color:'var(--txt1)'}}>Riscos em aberto</div>
-            <span style={{fontSize:10,color:'var(--txt3)'}}>{riscosAtivos.length} ativo{riscosAtivos.length!==1?'s':''}</span>
-          </div>
-          {riscosAtivos.length===0
-            ?<div style={{fontSize:11,color:'var(--txt3)'}}>Nenhum risco ativo mapeado.</div>
-            :riscosAtivos.slice(0,6).map(r=>(
-              <div key={r.id} style={{display:'flex',alignItems:'center',gap:8,padding:'7px 0',borderBottom:'1px solid var(--border)'}}>
-                <span style={{width:7,height:7,borderRadius:'50%',background:(RISK_SEV[r.severidade]||RISK_SEV.Media).c,flexShrink:0}}/>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:12,color:'var(--txt1)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.descricao}</div>
-                  <div style={{fontSize:10,color:r.iniciativa?'var(--accent)':'var(--txt3)',marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.iniciativa||'Sem iniciativa vinculada'}</div>
-                </div>
-                <span style={{fontSize:10,fontWeight:700,color:(RISK_SEV[r.severidade]||RISK_SEV.Media).c,flexShrink:0}}>{r.severidade}</span>
-              </div>
-            ))}
+      </div>
+
+      {/* ---- Riscos em aberto ---- */}
+      <div style={{background:'#fff',border:'1px solid var(--border)',borderRadius:12,padding:'18px 20px',marginTop:20}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
+          <div style={{fontSize:12,fontWeight:700,color:'var(--txt1)'}}>Riscos em aberto</div>
+          <span style={{fontSize:10,color:'var(--txt3)'}}>{riscosAtivos.length} ativo{riscosAtivos.length!==1?'s':''}</span>
         </div>
+        {riscosAtivos.length===0
+          ?<div style={{fontSize:11,color:'var(--txt3)'}}>Nenhum risco ativo mapeado.</div>
+          :<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(320px,1fr))',gap:12}}>
+            {riscosAtivos.slice(0,6).map(r=>{
+              const sev=RISK_SEV[r.severidade]||RISK_SEV.Media;
+              return(
+                <div key={r.id} style={{border:'1px solid var(--border)',borderLeft:'3px solid '+sev.c,borderRadius:8,padding:'10px 12px',background:'var(--bg2)',display:'flex',flexDirection:'column',gap:6,minWidth:0}}>
+                  <div style={{display:'flex',alignItems:'flex-start',gap:8}}>
+                    <span title={r.descricao} style={{flex:1,minWidth:0,fontSize:12,lineHeight:1.45,color:'var(--txt1)',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{r.descricao}</span>
+                    <span style={{flexShrink:0,fontSize:9,fontWeight:700,letterSpacing:.3,textTransform:'uppercase',color:sev.c,background:sev.c+'14',border:'1px solid '+sev.c+'33',borderRadius:99,padding:'2px 8px'}}>{r.severidade}</span>
+                  </div>
+                  <span title={r.iniciativa||''} style={{fontSize:10,color:r.iniciativa?'var(--accent)':'var(--txt3)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.iniciativa||'Sem iniciativa vinculada'}</span>
+                </div>
+              );
+            })}
+          </div>}
       </div>
 
       {/* ---- Visao por iniciativas ---- */}
