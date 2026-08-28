@@ -110,7 +110,7 @@ const BK_COLS=[
   {id:'priorizado',  lb:'Priorizado',       c:'#2563EB'},
   {id:'pronto',      lb:'Pronto para Dev',  c:'#059669'},
 ];
-const BK_AUTO=['Nao Iniciado','Pendente'];          // entram sozinhas na 1a coluna
+const BK_AUTO=['Nao Iniciado'];                     // entram sozinhas na 1a coluna
 const bkCol=(backlog,t)=>{
   const v=backlog?backlog[t.id]:undefined;
   if(v!==undefined&&v!==null)return v===''?null:v;   // decisao manual manda
@@ -2905,17 +2905,26 @@ function BacklogView({tasks,iStatus,statusProduto,setIStatus,openCreate,openEdit
   const toggleFechada=g=>setFechadas(prev=>{const n=new Set(prev);n.has(g)?n.delete(g):n.add(g);return n;});
   const canOrder=Boolean(setOrdem);
 
+  /* Uma iniciativa parada em Backlog entra inteira. As demais entram
+     parcialmente: so as tarefas que estao no backlog (Nao Iniciado ou
+     paradas de proposito), independente do status da iniciativa. */
+  const grupoInteiro=g=>!iStatus[g]||iStatus[g]==='Backlog';
+  const emBacklog=t=>Boolean(bkCol(backlog,t));
+  const tarefasDo=g=>tasks.filter(t=>t.g===g&&(grupoInteiro(g)||emBacklog(t)));
+
   const backlogGrupos=useMemo(()=>{
     const grupos=[...new Set(tasks.map(t=>t.g))];
     return grupos
-      .filter(g=>!iStatus[g]||iStatus[g]==='Backlog')
+      .filter(g=>grupoInteiro(g)||tasks.some(t=>t.g===g&&emBacklog(t)))
       .sort((a,b)=>{
+        const inteiroA=grupoInteiro(a),inteiroB=grupoInteiro(b);
+        if(inteiroA!==inteiroB)return inteiroA?-1:1;   // iniciativas paradas primeiro
         const ta=tasks.find(t=>t.g===a),tb=tasks.find(t=>t.g===b);
         return(ta?tn(ta.t):0)-(tb?tn(tb.t):0);
       });
-  },[tasks,iStatus]);
+  },[tasks,iStatus,backlog]);
 
-  const allTasks=tasks.filter(t=>backlogGrupos.includes(t.g));
+  const allTasks=backlogGrupos.flatMap(g=>tarefasDo(g));
 
   /* Ordenacao manual: `ordem[grupo]` guarda os ids na ordem escolhida.
      Quem ainda nao foi ordenado cai no fim, seguindo a numeracao da tarefa. */
@@ -2927,7 +2936,7 @@ function BacklogView({tasks,iStatus,statusProduto,setIStatus,openCreate,openEdit
   const cmpG=g=>(a,b)=>posOf(g,a)-posOf(g,b);
 
   const listaDo=g=>{
-    let gt=tasks.filter(t=>t.g===g);
+    let gt=tarefasDo(g);
     if(busca){
       const q=busca.toLowerCase();
       const bate=t=>((t.t||'')+' '+(t.c||'')+' '+(t.r||'')).toLowerCase().includes(q);
@@ -2943,7 +2952,7 @@ function BacklogView({tasks,iStatus,statusProduto,setIStatus,openCreate,openEdit
   // Move a tarefa entre os seus irmaos (mesmo pai) e regrava a ordem do grupo
   const mover=(g,task,dir)=>{
     if(!canOrder)return;
-    const gt=tasks.filter(t=>t.g===g);
+    const gt=tarefasDo(g);
     const pai=parentOf(parents,task.id);
     const irmaos=gt.filter(t=>parentOf(parents,t.id)===pai).sort(cmpG(g));
     const i=irmaos.findIndex(t=>t.id===task.id);
@@ -2980,6 +2989,7 @@ function BacklogView({tasks,iStatus,statusProduto,setIStatus,openCreate,openEdit
           <div style={{width:8,height:8,borderRadius:'50%',background:'#6B7280'}}/>
           <span style={{fontSize:13,fontWeight:700,color:'var(--txt1)'}}>Backlog de Iniciativas</span>
           <span style={{fontSize:11,color:'var(--txt3)',background:'var(--bg2)',border:'1px solid var(--border)',padding:'1px 9px',borderRadius:99}}>{backlogGrupos.length} iniciativa{backlogGrupos.length!==1?'s':''} · {allTasks.length} tarefa{allTasks.length!==1?'s':''}</span>
+          <span style={{fontSize:11,color:'var(--txt3)'}}>inclui tarefas não iniciadas de iniciativas já em andamento</span>
         </div>
         <div style={{display:'flex',alignItems:'center',gap:8}}>
           <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar no backlog..." style={{padding:'7px 11px',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:8,color:'var(--txt1)',fontSize:12.5,outline:'none',minWidth:200}}/>
@@ -2995,7 +3005,8 @@ function BacklogView({tasks,iStatus,statusProduto,setIStatus,openCreate,openEdit
          </div>
         :<div style={{padding:'20px 24px',display:'flex',flexDirection:'column',gap:14}}>
            {backlogGrupos.map(grupo=>{
-             const gtasks=tasks.filter(t=>t.g===grupo);
+             const gtasks=tarefasDo(grupo);
+             const parcial=!grupoInteiro(grupo);
              const lista=listaDo(grupo);
              const subs=gtasks.filter(t=>parentOf(parents,t.id)!==null).length;
              const smap={};
@@ -3006,7 +3017,10 @@ function BacklogView({tasks,iStatus,statusProduto,setIStatus,openCreate,openEdit
                  <div style={{padding:'14px 18px',borderBottom:aberta?'1px solid var(--border)':'none',display:'flex',alignItems:'center',gap:10,background:'var(--bg2)'}}>
                    <button onClick={()=>toggleFechada(grupo)} title={aberta?'Recolher':'Expandir'} style={{background:'none',border:'none',color:'var(--txt3)',cursor:'pointer',padding:2,display:'flex',transform:aberta?'rotate(0deg)':'rotate(-90deg)',transition:'transform .15s'}}><Ic n="chevron" s={15} c="currentColor"/></button>
                    <div style={{flex:1,minWidth:0}}>
-                     <div style={{fontSize:14,fontWeight:700,color:'var(--txt1)'}}>{grupo}</div>
+                     <div style={{display:'flex',alignItems:'center',gap:7,flexWrap:'wrap'}}>
+                       <span style={{fontSize:14,fontWeight:700,color:'var(--txt1)'}}>{grupo}</span>
+                       {parcial&&<span title="A iniciativa ja saiu do backlog — aqui aparecem so as tarefas nao iniciadas" style={{fontSize:10,fontWeight:700,padding:'1px 8px',borderRadius:99,background:getISCfg(iStatus[grupo]).bg,color:getISCfg(iStatus[grupo]).c,border:'1px solid '+getISCfg(iStatus[grupo]).c+'44'}}>{iStatus[grupo]}</span>}
+                     </div>
                      <div style={{display:'flex',height:4,borderRadius:4,overflow:'hidden',marginTop:6,gap:1,maxWidth:200}}>
                        {Object.entries(smap).map(([st,n])=><div key={st} title={st+': '+n} style={{flex:n,background:SCOL[st]||'#9CA3AF',minWidth:2}}/>)}
                      </div>
