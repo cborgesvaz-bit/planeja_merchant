@@ -166,7 +166,7 @@ function SubtaskPanel({pai,tasks,parents,setTasks,onAdd,canEdit=true,compact=fal
       </div>}
       {subs.length===0
         ?<div style={{fontSize:11,color:'var(--txt3)',marginBottom:6}}>Nenhuma subtarefa.</div>
-        :<div style={{display:'flex',flexDirection:'column',gap:4,marginBottom:7}}>
+        :<div style={{display:'flex',flexDirection:'column',gap:4,marginBottom:7,maxHeight:compact?200:230,overflowY:subs.length>7?'auto':'visible',paddingRight:subs.length>7?4:0}}>
            {subs.map(st=>(
              <div key={st.id} style={{display:'flex',alignItems:'center',gap:7}}>
                <span style={{color:'var(--txt3)',fontFamily:'monospace',fontSize:11,flexShrink:0}}>&#8627;</span>
@@ -704,6 +704,7 @@ function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,ope
   const[sortDir,setSortDir]=useState(null);
   const[expanded,setExpanded]=useState(new Set());
   const[groupBy,setGroupBy]=useState(true);
+  const[showSubs,setShowSubs]=useState(false);   // subtarefas ficam no painel do pai, nao na lista
   const[fGrupo,setFGrupo]=useState([]);
   const[selected,setSelected]=useState(new Set());
   const[bulkModal,setBulkModal]=useState(false);
@@ -753,18 +754,21 @@ function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,ope
   },[tasks,search,fStatus,fResp,fGrupo,sortCol,sortDir]);
 
   const cmpTn=(a,b)=>tn(a.t)-tn(b.t);
+  const filtrando=Boolean(search||fStatus.length||fResp.length||fGrupo.length);
+  const mostrarSubs=showSubs||filtrando;   // filtro ativo revela as subtarefas que casam
+  const semSubs=list=>mostrarSubs?list:list.filter(t=>(t._depth||0)===0);
   const grouped=useMemo(()=>{
-    if(!groupBy)return{'Todas as Tarefas':hierarchize(filtered,parents,cmpTn)};
+    if(!groupBy)return{'Todas as Tarefas':semSubs(hierarchize(filtered,parents,cmpTn))};
     const grp={};
     filtered.forEach(t=>{(grp[t.g]=grp[t.g]||[]).push(t);});
-    Object.keys(grp).forEach(g=>{grp[g]=hierarchize(grp[g],parents,cmpTn);});
+    Object.keys(grp).forEach(g=>{grp[g]=semSubs(hierarchize(grp[g],parents,cmpTn));});
     const keys=Object.keys(grp).sort((a,b)=>{
       const ma=Math.min(...grp[a].map(t=>tn(t.t)));
       const mb=Math.min(...grp[b].map(t=>tn(t.t)));
       return ma-mb;
     });
     const ord={};keys.forEach(k=>{ord[k]=grp[k];});return ord;
-  },[filtered,groupBy,parents]);
+  },[filtered,groupBy,parents,mostrarSubs]);
 
   const BulkEditModal=()=>{
     const[bStatus,setBStatus]=useState('');
@@ -860,6 +864,7 @@ function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,ope
             <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar tarefa, card, responsavel..." style={{width:'100%',padding:'8px 10px 8px 30px',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:8,color:'var(--txt1)',fontSize:14,outline:'none'}} onFocus={e=>e.target.style.borderColor='var(--accent)'} onBlur={e=>e.target.style.borderColor='var(--border)'}/>
           </div>
           <button onClick={()=>setGroupBy(g=>!g)} style={{padding:'7px 13px',borderRadius:7,fontSize:11,fontWeight:600,cursor:'pointer',border:'1px solid '+(groupBy?'rgba(34,211,238,.3)':'var(--border)'),background:groupBy?'rgba(34,211,238,.08)':'transparent',color:groupBy?'var(--cyan)':'var(--txt2)'}}>Agrupar</button>
+          <button onClick={()=>setShowSubs(v=>!v)} disabled={filtrando} title={filtrando?'Com filtro ativo as subtarefas sempre aparecem':'Mostrar as subtarefas como linhas da lista'} style={{padding:'7px 13px',borderRadius:7,fontSize:11,fontWeight:600,cursor:filtrando?'default':'pointer',opacity:filtrando?.55:1,border:'1px solid '+(mostrarSubs?'rgba(79,70,229,.3)':'var(--border)'),background:mostrarSubs?'rgba(79,70,229,.08)':'transparent',color:mostrarSubs?'var(--accent)':'var(--txt2)'}}>Subtarefas na lista</button>
           {(fStatus.length+fResp.length+fGrupo.length)>0&&<button onClick={()=>{setFStatus([]);setFResp([]);setFGrupo([]);}} style={{padding:'7px 13px',borderRadius:7,fontSize:11,fontWeight:600,cursor:'pointer',border:'1px solid rgba(248,113,113,.3)',background:'rgba(248,113,113,.08)',color:'#F87171'}}>✕ Limpar ({fStatus.length+fResp.length+fGrupo.length})</button>}
         </div>
         <div style={{display:'flex',flexDirection:'column',gap:5}}>
@@ -884,7 +889,10 @@ function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,ope
         </div>
       </div>
       <div style={{padding:'16px 24px 48px',overflowX:'auto'}}>
-        <div style={{fontSize:11,color:'var(--txt3)',marginBottom:12}}>{filtered.length} de {tasks.length} tarefas</div>
+        <div style={{fontSize:11,color:'var(--txt3)',marginBottom:12}}>
+          {Object.values(grouped).reduce((a,l)=>a+l.length,0)} de {tasks.length} tarefas
+          {!mostrarSubs&&<span> · subtarefas agrupadas no card do pai</span>}
+        </div>
         {Object.entries(grouped).map(([grupo,gtasks])=>(
           <div key={grupo} style={{marginBottom:28}}>
             {groupBy&&(()=>{
@@ -957,7 +965,7 @@ function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,ope
                           <div style={{display:'flex',alignItems:'center',gap:7,flexWrap:'wrap',paddingLeft:(task._depth||0)*22}}>
                             {(task._depth||0)>0&&<span title="Subtarefa" style={{color:'var(--txt3)',fontFamily:'monospace',fontSize:12,flexShrink:0}}>&#8627;</span>}
                             <TipoBadge tipo={tipos[task.id]}/><span>{task.t}</span>
-                            {(()=>{const n=childrenOf(gtasks,parents,task.id).length;return n?<span title={n+' subtarefa'+(n!==1?'s':'')} style={{fontSize:10,fontWeight:700,color:'var(--txt2)',background:'var(--bg3)',border:'1px solid var(--border)',borderRadius:99,padding:'1px 7px'}}>{n} sub</span>:null;})()}
+                            {(()=>{const n=childrenOf(allTasks||tasks,parents,task.id).length;return n?<span title={n+' subtarefa'+(n!==1?'s':'')} style={{fontSize:10,fontWeight:700,color:'var(--txt2)',background:'var(--bg3)',border:'1px solid var(--border)',borderRadius:99,padding:'1px 7px'}}>{n} sub</span>:null;})()}
                           </div>
                         </td>
                         <td style={{padding:'9px 11px',borderBottom:'1px solid var(--border)',background:bg}}><Badge s={task.s}/></td>
@@ -992,7 +1000,7 @@ function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,ope
                                   {sortLog(task.a.split('\n').filter(Boolean)).map((line,i)=>{const[dt,...rest]=line.split(' - ');return(<div key={i} style={{display:'flex',gap:8}}><span style={{fontFamily:'monospace',fontSize:10,color:'var(--cyan)',opacity:.7,minWidth:36,flexShrink:0}}>{dt}</span><span style={{fontSize:11,color:'var(--txt2)'}}>{rest.join(' - ')}</span></div>);})}
                                 </div>:<p style={{fontSize:11,color:'var(--txt3)'}}>Sem registros.</p>}
                               </div>
-                              {(task._depth||0)===0&&<div style={{flex:'1 1 260px'}}>
+                              {(task._depth||0)===0&&<div style={{flex:'1 1 340px',minWidth:300}}>
                                 <SubtaskPanel pai={task} tasks={allTasks||tasks} parents={parents} setTasks={setTasks} onAdd={onAddSub} canEdit={Boolean(openEdit)}/>
                               </div>}
                               {task.mr&&<div style={{flex:'1 1 180px'}}>
