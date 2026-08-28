@@ -1486,11 +1486,22 @@ function DashboardView({tasks,iStatus={},riscos=[],deps=[]}){
     const hoje=new Date();hoje.setHours(0,0,0,0);
     const eachDate=(txt,cb)=>{
       if(!txt)return;
-      txt.split('\n').forEach(line=>{
-        const m=line.match(/^(\d{1,2}\/\d{1,2})/);
-        if(!m)return;
-        const d=parseDate(m[1]);
-        if(d)cb(d,line);
+      String(txt).split('\n').forEach(line=>{
+        if(!line.trim())return;
+        // Aceita datas em qualquer posição: 12/03, 12/03/26, 12/03/2026, 12-03
+        const re=/(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?/g;
+        let m,found=null;
+        while((m=re.exec(line))){
+          const dia=+m[1],mes=+m[2];
+          if(dia<1||dia>31||mes<1||mes>12)continue;
+          let ano=m[3]?+m[3]:2026;
+          if(ano<100)ano+=2000;
+          const d=new Date(ano,mes-1,dia);
+          if(isNaN(d))continue;
+          found=d;
+          break; // primeira data válida da linha
+        }
+        if(found)cb(found,line);
       });
     };
     tasks.forEach(t=>{
@@ -1595,6 +1606,7 @@ function DashboardView({tasks,iStatus={},riscos=[],deps=[]}){
             <div style={{fontSize:11,color:'var(--txt3)',marginTop:2}}>
               {totalIniciativas} iniciativa{totalIniciativas!==1?'s':''} · {initColumns.length} status em uso
               {iniciativasRisco>0&&<span style={{color:'#DC2626',fontWeight:600}}> · {iniciativasRisco} com tarefa bloqueada</span>}
+              {initiatives.filter(i=>!i.ini).length>0&&<span> · {initiatives.filter(i=>!i.ini).length} sem data registrada</span>}
             </div>
           </div>
           <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
