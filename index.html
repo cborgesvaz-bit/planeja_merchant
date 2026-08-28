@@ -108,6 +108,70 @@ const SCY={asc:"desc",desc:null,null:"asc"};
 const avColor=n=>`hsl(${n.charCodeAt(0)*15%360},45%,32%)`;
 const tn=t=>{const m=t.match(/^(\d+)\.(\d+)/);return m?+m[1]*10000+ +m[2]:999999;};
 
+/* ══════════════════════════════════════════════════════════════
+   RESPONSAVEIS MULTIPLOS
+   t.r continua sendo UMA STRING no banco ("Ana, Bruno"), entao
+   nao ha migracao de schema: a lista e sempre derivada dela.
+   ══════════════════════════════════════════════════════════════ */
+const respList=r=>String(r||'').split(/[;,]/).map(x=>x.trim()).filter(Boolean);
+const respJoin=arr=>[...new Set((arr||[]).map(x=>String(x).trim()).filter(Boolean))].join(', ');
+const hasResp=(t,nome)=>respList(t.r).indexOf(nome)>=0;
+const allRespOf=list=>[...new Set(list.flatMap(t=>respList(t.r)))].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+
+function RespAvatars({r,max=3,size=22}){
+  const list=respList(r);
+  if(!list.length)return <span style={{color:'var(--txt3)'}}>-</span>;
+  const shown=list.slice(0,max),extra=list.length-shown.length;
+  return(
+    <div style={{display:'flex',alignItems:'center',gap:6,minWidth:0}} title={list.join(', ')}>
+      <div style={{display:'flex',flexShrink:0}}>
+        {shown.map((n,i)=>(
+          <div key={n} style={{width:size,height:size,borderRadius:'50%',background:avColor(n),display:'flex',alignItems:'center',justifyContent:'center',fontSize:Math.round(size*0.36),fontWeight:800,color:'#fff',border:'2px solid var(--bg1)',marginLeft:i?-7:0}}>{n.slice(0,2).toUpperCase()}</div>
+        ))}
+        {extra>0&&<div style={{width:size,height:size,borderRadius:'50%',background:'var(--txt3)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:Math.round(size*0.34),fontWeight:800,color:'#fff',border:'2px solid var(--bg1)',marginLeft:-7}}>+{extra}</div>}
+      </div>
+      <span style={{color:'var(--txt1)',fontSize:13,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{list.length===1?list[0]:list.length+' pessoas'}</span>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   SUBTAREFAS
+   O vinculo filho->pai vive no mapa `parents` ({idFilho:idPai}),
+   persistido em pm_data — mesmo padrao ja usado por `tipos`.
+   ══════════════════════════════════════════════════════════════ */
+function parentOf(parents,id){
+  const p=parents?parents[id]:null;
+  if(p===null||p===undefined||p==='')return null;
+  const n=Number(p);
+  return isNaN(n)?null:n;
+}
+const isSub=(parents,id)=>parentOf(parents,id)!==null;
+const childrenOf=(list,parents,id)=>list.filter(t=>parentOf(parents,t.id)===Number(id));
+// Ordena a lista mantendo cada subtarefa logo abaixo da sua tarefa pai.
+// Devolve copias com `_depth` (0 = raiz, 1+ = subtarefa).
+function hierarchize(list,parents,cmp){
+  const ids=new Set(list.map(t=>t.id));
+  const kids={};
+  const roots=[];
+  list.forEach(t=>{
+    const p=parentOf(parents,t.id);
+    if(p!==null&&ids.has(p))(kids[p]=kids[p]||[]).push(t);
+    else roots.push(t);
+  });
+  const out=[];
+  const seen=new Set();
+  const walk=(t,depth)=>{
+    if(seen.has(t.id))return;           // guarda contra ciclos
+    seen.add(t.id);
+    out.push({...t,_depth:depth});
+    (kids[t.id]||[]).slice().sort(cmp).forEach(c=>walk(c,depth+1));
+  };
+  roots.slice().sort(cmp).forEach(t=>walk(t,0));
+  list.forEach(t=>{if(!seen.has(t.id))out.push({...t,_depth:0});});
+  return out;
+}
+
 const T0=[
  {id:1,g:"BUGs",t:"1.2 - Transacao Aiqfome - Split zerado para seller",c:"BUG-B63B",v:"",s:"Bloqueado",r:"Lourene",mr:"",a:"10/11 - Aberto thread com o time do Uncle\n04/11 - Termino da analise\n03/11 - Inicio da analise"},
  {id:2,g:"BUGs",t:"1.19 - [Atualizacao Pedido] Erro de transicao no Velocity",c:"BUG-1090",v:"",s:"Nao Iniciado",r:"",mr:"",a:""},
@@ -176,7 +240,7 @@ function getTaskDayMap(task){
 }
 function sortLog(lines){return[...lines].sort((a,b)=>{const p=s=>{const m=s.match(/^(\d{1,2})\/(\d{1,2})/);return m?(+m[2])*100+(+m[1]):0;};return p(b)-p(a);});}
 
-function exportXLSX(tasks){
+function exportXLSX(tasks,parents={},tipos={}){
   if(!window.XLSX){alert('XLSX nao disponivel');return;}
   const wb=window.XLSX.utils.book_new();
 
@@ -192,13 +256,15 @@ function exportXLSX(tasks){
       'Card':t.c,
       'Tarefa':t.t,
       'Status':t.s,
-      'Responsavel':t.r,
+      'Tipo':tipos[t.id]||'Tarefa',
+      'Tarefa pai':(()=>{const p=parentOf(parents,t.id);const pt=p!==null?tasks.find(x=>x.id===p):null;return pt?pt.t:'';})(),
+      'Responsaveis':respList(t.r).join(' | '),
       'Versao':t.v,
       'Acompanhamento':t.a,
       'Link MR':t.mr,
     }));
   const wsTasks=window.XLSX.utils.json_to_sheet(taskRows);
-  wsTasks['!cols']=[{wch:30},{wch:12},{wch:60},{wch:20},{wch:14},{wch:12},{wch:60},{wch:50}];
+  wsTasks['!cols']=[{wch:30},{wch:12},{wch:60},{wch:20},{wch:10},{wch:40},{wch:26},{wch:12},{wch:60},{wch:50}];
   window.XLSX.utils.book_append_sheet(wb,wsTasks,'Tarefas');
 
   // ── Aba 2: Linha do Tempo ─────────────────────────────────
@@ -219,7 +285,7 @@ function exportXLSX(tasks){
         'Card':t.c,
         'Tarefa':t.t,
         'Fase':phLabels[ph]||ph,
-        'Responsavel':t.r,
+        'Responsaveis':respList(t.r).join(' | '),
         'Status Atual':t.s,
         'Descricao':desc,
       });
@@ -289,10 +355,11 @@ function Toast({msg,onDone}){
   </div>;
 }
 
-function Drawer({open,onClose,onSave,grupos,allResp,editing,tipos={}}){
+function Drawer({open,onClose,onSave,grupos,allResp,editing,tipos={},parents={},tasks=[]}){
   const preGroup=editing&&editing._preGroup?editing._preGroup:null;
+  const preParent=editing&&editing._preParent!=null?String(editing._preParent):'';
   const isEdit=Boolean(editing)&&!preGroup;
-  const blank=()=>({t:'',c:'',v:'',s:'Nao Iniciado',r:'',g:preGroup||'',ng:'',tipo:'Tarefa'});
+  const blank=()=>({t:'',c:'',v:'',s:'Nao Iniciado',r:'',g:preGroup||'',ng:'',tipo:'Tarefa',parent:preParent});
   const[form,setForm]=useState(blank());
   const[gmode,setGmode]=useState('ex');
   const[mrList,setMrList]=useState(['']);
@@ -307,10 +374,11 @@ function Drawer({open,onClose,onSave,grupos,allResp,editing,tipos={}}){
     if(!open)return;
     setErrs({});setTab('d');
     if(preGroup){
-      setForm({t:'',c:'',v:'',s:'Nao Iniciado',r:'',g:preGroup,ng:'',tipo:'Tarefa'});
+      setForm({t:'',c:'',v:'',s:'Nao Iniciado',r:'',g:preGroup,ng:'',tipo:'Tarefa',parent:preParent});
       setGmode('ex');setMrList(['']);setHist('');setEntry('');
     }else if(isEdit){
-      setForm({t:editing.t,c:editing.c,v:editing.v,s:editing.s,r:editing.r,g:editing.g,ng:'',tipo:tipos[editing.id]||'Tarefa'});
+      const pai=parentOf(parents,editing.id);
+      setForm({t:editing.t,c:editing.c,v:editing.v,s:editing.s,r:editing.r,g:editing.g,ng:'',tipo:tipos[editing.id]||'Tarefa',parent:pai!==null?String(pai):''});
       setGmode('ex');setMrList(editing.mr?editing.mr.split('\n').filter(Boolean):['']);
       setHist(editing.a||'');setEntry('');
     }else{setForm(blank());setGmode('ex');setMrList(['']);setHist('');setEntry('');}
@@ -323,6 +391,15 @@ function Drawer({open,onClose,onSave,grupos,allResp,editing,tipos={}}){
   },[onClose]);
 
   const set=(k,v)=>{setForm(f=>({...f,[k]:v}));setErrs(e=>({...e,[k]:undefined}));};
+  // ── responsaveis multiplos ──
+  const selResp=respList(form.r);
+  const toggleResp=n=>set('r',respJoin(selResp.indexOf(n)>=0?selResp.filter(x=>x!==n):[...selResp,n]));
+  // ── subtarefas ──
+  const gAtual=gmode==='new'?form.ng.trim():form.g;
+  const temFilhos=isEdit&&tasks.some(t=>parentOf(parents,t.id)===editing.id);
+  const paiOpcoes=useMemo(()=>tasks
+      .filter(t=>(!isEdit||t.id!==editing.id)&&(!gAtual||t.g===gAtual)&&parentOf(parents,t.id)===null)
+      .sort((a,b)=>tn(a.t)-tn(b.t)),[tasks,gAtual,isEdit,editing,parents]);
   const addMr=()=>setMrList(l=>[...l,'']);
   const setMr=(i,v)=>setMrList(l=>l.map((x,j)=>j===i?v:x));
   const rmMr=i=>setMrList(l=>l.filter((_,j)=>j!==i));
@@ -331,14 +408,18 @@ function Drawer({open,onClose,onSave,grupos,allResp,editing,tipos={}}){
     const e={};
     if(!form.t.trim())e.t='Obrigatorio';
     if(!form.s)e.s='Obrigatorio';
-    if(gmode==='ex'&&!form.g)e.g='Selecione';
-    if(gmode==='new'&&!form.ng.trim())e.ng='Nome obrigatorio';
+    if(!form.parent){                       // subtarefa herda a iniciativa do pai
+      if(gmode==='ex'&&!form.g)e.g='Selecione';
+      if(gmode==='new'&&!form.ng.trim())e.ng='Nome obrigatorio';
+    }
     return e;
   };
 
   const save=()=>{
     const e=validate();if(Object.keys(e).length){setErrs(e);return;}
-    const gFinal=gmode==='new'?form.ng.trim():form.g;
+    let gFinal=gmode==='new'?form.ng.trim():form.g;
+    const pai=form.parent?tasks.find(t=>String(t.id)===String(form.parent)):null;
+    if(pai)gFinal=pai.g;                    // subtarefa sempre na iniciativa do pai
     const mrFinal=mrList.filter(Boolean).join('\n');
     let aFinal;
     if(isEdit){
@@ -350,7 +431,7 @@ function Drawer({open,onClose,onSave,grupos,allResp,editing,tipos={}}){
       const el=entry.trim()||hist.trim();
       aFinal=el&&!el.includes('-')?`${today()} - ${el}`:el;
     }
-    onSave({...form,g:gFinal,mr:mrFinal,a:aFinal},isEdit?editing.id:null);
+    onSave({...form,g:gFinal,mr:mrFinal,a:aFinal,parent:pai?pai.id:null},isEdit?editing.id:null);
     onClose();
   };
 
@@ -373,7 +454,7 @@ function Drawer({open,onClose,onSave,grupos,allResp,editing,tipos={}}){
           <div style={{display:'flex',alignItems:'center',gap:9}}>
             <div style={{width:5,height:20,background:isEdit?'linear-gradient(180deg,#FBBF24,#F97316)':'linear-gradient(180deg,var(--cyan),var(--accent))',borderRadius:3}}/>
             <div>
-              <div style={{fontSize:14,fontWeight:700,color:'var(--txt1)'}}>{isEdit?'Editar Tarefa':'Nova Tarefa'}</div>
+              <div style={{fontSize:14,fontWeight:700,color:'var(--txt1)'}}>{isEdit?(form.parent?'Editar Subtarefa':'Editar Tarefa'):(form.parent?'Nova Subtarefa':'Nova Tarefa')}</div>
               {isEdit&&<div style={{fontSize:10,color:'var(--txt3)',fontFamily:'monospace'}}>{editing.c||editing.g}</div>}
             </div>
           </div>
@@ -419,19 +500,50 @@ function Drawer({open,onClose,onSave,grupos,allResp,editing,tipos={}}){
                 <div><Lbl c="Card"/><input value={form.c} onChange={e=>set('c',e.target.value)} placeholder="STK-A1B2" style={ist} onFocus={e=>e.target.style.borderColor='var(--accent)'} onBlur={e=>e.target.style.borderColor='var(--border)'}/></div>
                 <div><Lbl c="Versao"/><input value={form.v} onChange={e=>set('v',e.target.value)} placeholder="v0.11.0" style={ist} onFocus={e=>e.target.style.borderColor='var(--accent)'} onBlur={e=>e.target.style.borderColor='var(--border)'}/></div>
               </div>
-              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-                <div>
-                  <Lbl c="Status" req err={errs.s}/>
-                  <select value={form.s} onChange={e=>set('s',e.target.value)} style={ist}>
-                    {Object.keys(SC).sort((a,b)=>a.localeCompare(b,"pt-BR")).map(s=><option key={s} value={s}>{s}</option>)}
-                  </select>
+              <div style={{marginBottom:16}}>
+                <Lbl c="Status" req err={errs.s}/>
+                <select value={form.s} onChange={e=>set('s',e.target.value)} style={ist}>
+                  {Object.keys(SC).sort((a,b)=>a.localeCompare(b,"pt-BR")).map(s=><option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div style={{marginBottom:16}}>
+                <Lbl c="Responsaveis"/>
+                <div style={{display:'flex',flexWrap:'wrap',gap:6,marginBottom:selResp.length?8:0}}>
+                  {selResp.length===0
+                    ?<span style={{fontSize:11,color:'var(--txt3)'}}>Nenhum responsavel — a tarefa fica sem dono.</span>
+                    :selResp.map(n=>(
+                      <span key={n} style={{display:'inline-flex',alignItems:'center',gap:6,padding:'3px 8px 3px 3px',borderRadius:99,background:'var(--bg3)',border:'1px solid var(--border)',fontSize:12,color:'var(--txt1)'}}>
+                        <span style={{width:18,height:18,borderRadius:'50%',background:avColor(n),color:'#fff',fontSize:8,fontWeight:800,display:'flex',alignItems:'center',justifyContent:'center'}}>{n.slice(0,2).toUpperCase()}</span>
+                        {n}
+                        <button type="button" onClick={()=>toggleResp(n)} title="Remover" style={{background:'none',border:'none',color:'var(--txt3)',cursor:'pointer',fontSize:12,lineHeight:1,padding:0}}>x</button>
+                      </span>
+                    ))}
                 </div>
-                <div>
-                  <Lbl c="Responsavel"/>
-                  <select value={form.r} onChange={e=>set('r',e.target.value)} style={ist} onFocus={e=>e.target.style.borderColor='var(--accent)'} onBlur={e=>e.target.style.borderColor='var(--border)'}>
-                    <option value="">— Sem responsavel —</option>
-                    {(allResp||[]).map(r=><option key={r} value={r}>{r}</option>)}
-                  </select>
+                <div style={{maxHeight:132,overflowY:'auto',border:'1px solid var(--border)',borderRadius:8,background:'var(--bg)'}}>
+                  {(allResp||[]).length===0
+                    ?<div style={{padding:'10px 11px',fontSize:11,color:'var(--txt3)'}}>Nenhuma pessoa cadastrada neste time.</div>
+                    :(allResp||[]).map(r=>{
+                       const on=selResp.indexOf(r)>=0;
+                       return(
+                         <label key={r} style={{display:'flex',alignItems:'center',gap:8,padding:'6px 11px',fontSize:12.5,color:'var(--txt1)',cursor:'pointer',borderBottom:'1px solid var(--border)',background:on?'rgba(79,70,229,.06)':'transparent'}}>
+                           <input type="checkbox" checked={on} onChange={()=>toggleResp(r)} style={{width:14,height:14,accentColor:'var(--accent)',cursor:'pointer'}}/>
+                           <span>{r}</span>
+                         </label>
+                       );
+                     })}
+                </div>
+                <div style={{fontSize:10,color:'var(--txt3)',marginTop:5}}>Selecione uma ou mais pessoas da squad.</div>
+              </div>
+              <div>
+                <Lbl c="Subtarefa de"/>
+                <select value={form.parent} onChange={e=>set('parent',e.target.value)} style={{...ist,opacity:temFilhos?.6:1}} disabled={temFilhos}>
+                  <option value="">— Tarefa principal —</option>
+                  {paiOpcoes.map(p=><option key={p.id} value={String(p.id)}>{(p.c?p.c+' · ':'')+p.t}</option>)}
+                </select>
+                <div style={{fontSize:10,color:'var(--txt3)',marginTop:5}}>
+                  {temFilhos
+                    ?'Esta tarefa ja possui subtarefas, por isso nao pode virar subtarefa de outra.'
+                    :'Ao vincular, a subtarefa herda a iniciativa da tarefa pai.'}
                 </div>
               </div>
             </React.Fragment>
@@ -487,7 +599,7 @@ function Drawer({open,onClose,onSave,grupos,allResp,editing,tipos={}}){
   );
 }
 
-function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,openBulkCreate,statusProduto=[],tipos={},resps=[]}){
+function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,openBulkCreate,statusProduto=[],tipos={},resps=[],parents={},openCreateSub}){
   const[search,setSearch]=useState('');
   const[fStatus,setFStatus]=useState([]);
   const[fResp,setFResp]=useState([]);
@@ -504,7 +616,7 @@ function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,ope
   const[confDel,setConfDel]=useState(null);
   const grupoRef=useRef(null);
 
-  const allResp=useMemo(()=>[...new Set(tasks.map(t=>t.r).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR')),[tasks]);
+  const allResp=useMemo(()=>allRespOf(tasks),[tasks]);
   const allStatus=useMemo(()=>[...new Set(tasks.map(t=>t.s))].sort((a,b)=>a.localeCompare(b,'pt-BR')),[tasks]);
 
   const toggleSort=col=>{if(sortCol!==col){setSortCol(col);setSortDir('asc');}else{const n=SCY[sortDir];if(!n){setSortCol(null);setSortDir(null);}else setSortDir(n);}};
@@ -521,7 +633,13 @@ function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,ope
     if(draft.trim()&&draft.trim()!==orig)setTasks(prev=>prev.map(t=>t.g===orig?{...t,g:draft.trim()}:t));
     setEditGrupo(null);
   };
-  const deleteTask=id=>{setTasks(prev=>prev.filter(t=>t.id!==id));setConfDel(null);};
+  // Excluir uma tarefa pai remove tambem as subtarefas dela (em cascata)
+  const descendants=id=>{
+    const kill=new Set([id]);let mudou=true;
+    while(mudou){mudou=false;tasks.forEach(t=>{const p=parentOf(parents,t.id);if(p!==null&&kill.has(p)&&!kill.has(t.id)){kill.add(t.id);mudou=true;}});}
+    return kill;
+  };
+  const deleteTask=id=>{const kill=descendants(id);setTasks(prev=>prev.filter(t=>!kill.has(t.id)));setConfDel(null);};
   const deleteGroup=name=>{setTasks(prev=>prev.filter(t=>t.g!==name));setConfDel(null);};
 
   useEffect(()=>{if(editGrupo)grupoRef.current&&grupoRef.current.focus();},[editGrupo]);
@@ -529,30 +647,32 @@ function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,ope
 
   const filtered=useMemo(()=>{
     let list=[...tasks];
-    if(search){const q=search.toLowerCase();list=list.filter(t=>t.t.toLowerCase().includes(q)||t.c.toLowerCase().includes(q)||t.r.toLowerCase().includes(q)||t.g.toLowerCase().includes(q));}
+    if(search){const q=search.toLowerCase();list=list.filter(t=>t.t.toLowerCase().includes(q)||t.c.toLowerCase().includes(q)||String(t.r||'').toLowerCase().includes(q)||t.g.toLowerCase().includes(q));}
     if(fStatus.length)list=list.filter(t=>fStatus.includes(t.s));
-    if(fResp.length)list=list.filter(t=>fResp.includes(t.r));
+    if(fResp.length)list=list.filter(t=>fResp.some(r=>hasResp(t,r)));
     if(fGrupo.length)list=list.filter(t=>fGrupo.includes(t.g));
     if(sortCol&&sortDir)list.sort((a,b)=>{const va=a[sortCol]||'',vb=b[sortCol]||'';return sortDir==='asc'?va.localeCompare(vb,'pt-BR'):-va.localeCompare(vb,'pt-BR');});
     return list;
   },[tasks,search,fStatus,fResp,fGrupo,sortCol,sortDir]);
 
+  const cmpTn=(a,b)=>tn(a.t)-tn(b.t);
   const grouped=useMemo(()=>{
-    if(!groupBy)return{'Todas as Tarefas':[...filtered].sort((a,b)=>tn(a.t)-tn(b.t))};
+    if(!groupBy)return{'Todas as Tarefas':hierarchize(filtered,parents,cmpTn)};
     const grp={};
     filtered.forEach(t=>{(grp[t.g]=grp[t.g]||[]).push(t);});
-    Object.keys(grp).forEach(g=>{grp[g].sort((a,b)=>tn(a.t)-tn(b.t));});
+    Object.keys(grp).forEach(g=>{grp[g]=hierarchize(grp[g],parents,cmpTn);});
     const keys=Object.keys(grp).sort((a,b)=>{
       const ma=Math.min(...grp[a].map(t=>tn(t.t)));
       const mb=Math.min(...grp[b].map(t=>tn(t.t)));
       return ma-mb;
     });
     const ord={};keys.forEach(k=>{ord[k]=grp[k];});return ord;
-  },[filtered,groupBy]);
+  },[filtered,groupBy,parents]);
 
   const BulkEditModal=()=>{
     const[bStatus,setBStatus]=useState('');
     const[bResp,setBResp]=useState('');
+    const[bRespMode,setBRespMode]=useState('set');
     const[bGrupo,setBGrupo]=useState('');
     const[bConfDel,setBConfDel]=useState(false);
     const allResp2=[...resps].sort((a,b)=>a.localeCompare(b,'pt-BR')); // apenas o time ativo
@@ -561,7 +681,15 @@ function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,ope
     const applyBulk=()=>{
       setTasks(prev=>prev.map(t=>{
         if(!selected.has(t.id))return t;
-        return{...t,...(bStatus?{s:bStatus}:{}),...(bResp?{r:bResp}:{}),...(bGrupo?{g:bGrupo}:{})};
+        let r=t.r;
+        if(bResp){
+          const atual=respList(t.r);
+          if(bResp===' ')r='';
+          else if(bRespMode==='add')r=respJoin([...atual,bResp]);
+          else if(bRespMode==='rm')r=respJoin(atual.filter(x=>x!==bResp));
+          else r=bResp;
+        }
+        return{...t,...(bStatus?{s:bStatus}:{}),...(bResp?{r}:{}),...(bGrupo?{g:bGrupo}:{})};
       }));
       setBulkModal(false);clearSel();
     };
@@ -585,11 +713,16 @@ function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,ope
               </select>
             </div>
             <div>
-              <div style={{fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8,marginBottom:5}}>Responsavel</div>
+              <div style={{fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8,marginBottom:5}}>Responsaveis</div>
+              <div style={{display:'flex',gap:6,marginBottom:6}}>
+                {[['set','Substituir'],['add','Adicionar'],['rm','Remover']].map(([m,lbl])=>(
+                  <button key={m} type="button" onClick={()=>setBRespMode(m)} style={{flex:1,padding:'5px 0',borderRadius:7,fontSize:11,fontWeight:600,cursor:'pointer',border:'1px solid '+(bRespMode===m?'rgba(79,70,229,.4)':'var(--border)'),background:bRespMode===m?'rgba(79,70,229,.1)':'transparent',color:bRespMode===m?'var(--accent)':'var(--txt2)'}}>{lbl}</button>
+                ))}
+              </div>
               <select value={bResp} onChange={e=>setBResp(e.target.value)} style={ist}>
                 <option value="">Manter atual</option>
                 {allResp2.map(r=><option key={r} value={r}>{r}</option>)}
-                <option value=" ">— Remover responsavel —</option>
+                <option value=" ">— Limpar todos os responsaveis —</option>
               </select>
             </div>
             <div>
@@ -724,16 +857,15 @@ function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,ope
                           {task.c?<span style={{fontFamily:'monospace',fontSize:11,color:'var(--txt2)',background:'var(--bg)',padding:'2px 5px',borderRadius:4,border:'1px solid var(--border)',fontWeight:500,whiteSpace:'nowrap',display:'inline-block'}}>{task.c}</span>:<span style={{color:'var(--txt3)',fontSize:10}}>-</span>}
                         </td>
                         <td style={{padding:'10px 12px',borderBottom:'1px solid var(--border)',background:bg,fontSize:13,color:'var(--txt1)',lineHeight:1.4}}>
-                          <div style={{display:'flex',alignItems:'center',gap:7,flexWrap:'wrap'}}>
+                          <div style={{display:'flex',alignItems:'center',gap:7,flexWrap:'wrap',paddingLeft:(task._depth||0)*22}}>
+                            {(task._depth||0)>0&&<span title="Subtarefa" style={{color:'var(--txt3)',fontFamily:'monospace',fontSize:12,flexShrink:0}}>&#8627;</span>}
                             <TipoBadge tipo={tipos[task.id]}/><span>{task.t}</span>
+                            {(()=>{const n=childrenOf(gtasks,parents,task.id).length;return n?<span title={n+' subtarefa'+(n!==1?'s':'')} style={{fontSize:10,fontWeight:700,color:'var(--txt2)',background:'var(--bg3)',border:'1px solid var(--border)',borderRadius:99,padding:'1px 7px'}}>{n} sub</span>:null;})()}
                           </div>
                         </td>
                         <td style={{padding:'9px 11px',borderBottom:'1px solid var(--border)',background:bg}}><Badge s={task.s}/></td>
                         <td style={{padding:'11px 13px',borderBottom:'1px solid var(--border)',background:bg,fontSize:11}}>
-                          {task.r?<div style={{display:'flex',alignItems:'center',gap:6}}>
-                            <div style={{width:22,height:22,borderRadius:'50%',background:avColor(task.r),display:'flex',alignItems:'center',justifyContent:'center',fontSize:8,fontWeight:800,color:'#fff',flexShrink:0}}>{task.r.slice(0,2).toUpperCase()}</div>
-                            <span style={{color:'var(--txt1)',fontSize:13}}>{task.r}</span>
-                          </div>:<span style={{color:'var(--txt3)'}}>-</span>}
+                          <RespAvatars r={task.r}/>
                         </td>
                         <td style={{padding:'11px 13px',borderBottom:'1px solid var(--border)',background:bg,fontSize:12,color:'var(--txt2)'}}>{task.v||'-'}</td>
                         <td style={{padding:'7px 11px',borderBottom:'1px solid var(--border)',background:bg,minWidth:90}} onClick={e=>e.stopPropagation()}>
@@ -743,6 +875,7 @@ function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,ope
                                <button onClick={()=>setConfDel(null)} style={{padding:'3px 7px',borderRadius:5,background:'transparent',border:'1px solid var(--border)',color:'var(--txt2)',fontSize:10,cursor:'pointer'}}>Nao</button>
                              </div>
                             :<div style={{display:'flex',gap:5}}>
+                               {openCreateSub&&(task._depth||0)===0&&<button className="eb" onClick={e=>{e.stopPropagation();openCreateSub(task);}} title="Adicionar subtarefa" style={{width:28,height:28,borderRadius:7,background:'rgba(37,99,235,.07)',border:'1px solid rgba(37,99,235,.18)',color:'var(--accent)',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,fontWeight:800,lineHeight:1}}>+</button>}
                                <button className="eb" onClick={e=>openEdit(task,e)} title="Editar" style={{width:28,height:28,borderRadius:7,background:'rgba(180,83,9,.07)',border:'1px solid rgba(180,83,9,.18)',color:'#B45309',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',transition:'all .15s'}} onMouseOver={e=>{e.currentTarget.style.background='rgba(180,83,9,.14)';e.currentTarget.style.borderColor='rgba(180,83,9,.35)';}} onMouseOut={e=>{e.currentTarget.style.background='rgba(180,83,9,.07)';e.currentTarget.style.borderColor='rgba(180,83,9,.18)';}}><Ic n="edit" s={13} c="currentColor"/></button>
                                <button className="eb" onClick={e=>{e.stopPropagation();setConfDel({type:'t',id:task.id});}} title="Excluir" style={{width:28,height:28,borderRadius:7,background:'rgba(220,38,38,.07)',border:'1px solid rgba(220,38,38,.18)',color:'#DC2626',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',transition:'all .15s'}} onMouseOver={e=>{e.currentTarget.style.background='rgba(220,38,38,.14)';e.currentTarget.style.borderColor='rgba(220,38,38,.35)';}} onMouseOut={e=>{e.currentTarget.style.background='rgba(220,38,38,.07)';e.currentTarget.style.borderColor='rgba(220,38,38,.18)';}}><Ic n="trash" s={13} c="currentColor"/></button>
                                <button onClick={e=>{e.stopPropagation();toggleRow(task.id);}} title="Detalhes" style={{width:28,height:28,borderRadius:7,background:'transparent',border:'1px solid var(--border)',color:'var(--txt3)',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',transform:exp?'rotate(90deg)':'none',transition:'all .15s'}} onMouseOver={e=>{e.currentTarget.style.background='var(--bg2)';e.currentTarget.style.color='var(--txt1)';}} onMouseOut={e=>{e.currentTarget.style.background='transparent';e.currentTarget.style.color='var(--txt3)';}}><Ic n="chevron" s={13} c="currentColor"/></button>
@@ -752,7 +885,7 @@ function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,ope
                       </tr>
                       {exp&&(
                         <tr>
-                          <td colSpan={6} style={{padding:0,background:'#F7F9FF',borderBottom:'1px solid var(--border)',borderLeft:'3px solid '+(cfg.c||'var(--cyan)')}}>
+                          <td colSpan={7} style={{padding:0,background:'#F7F9FF',borderBottom:'1px solid var(--border)',borderLeft:'3px solid '+(cfg.c||'var(--cyan)')}}>
                             <div style={{padding:'12px 18px 14px 24px',display:'flex',gap:28,flexWrap:'wrap'}}>
                               <div style={{flex:'1 1 280px'}}>
                                 <div style={{fontSize:9,fontWeight:700,color:'var(--txt2)',textTransform:'uppercase',letterSpacing:1.2,marginBottom:7,display:'flex',alignItems:'center',gap:5}}>
@@ -987,7 +1120,7 @@ function Timeline({tasks,setTasks,iStatus={},setIStatus}){
                           const dk=d.toISOString().slice(0,10);
                           const act=dmap[dk];const isM=d.getDay()===1;const isT=dk===todayK;
                           const ph=act?PH[act.ph]:null;
-                          const lbl=act?(act.ph==='CUSTOM'&&act.cl?act.cl.slice(0,7):act.ph==='DEV'&&task.r?task.r.split(' ')[0].slice(0,6):ph.lb):null;
+                          const lbl=act?(act.ph==='CUSTOM'&&act.cl?act.cl.slice(0,7):act.ph==='DEV'&&task.r?(respList(task.r)[0]||'').split(' ')[0].slice(0,6):ph.lb):null;
                           return(
                             <div key={dk} ref={isT?todayColRef:null} className={act?'gc':''} style={{width:DW,flexShrink:0,position:'relative',background:act?ph.sl:isT?'rgba(34,211,238,.1)':'transparent',borderLeft:isM?'1px solid var(--border2)':'1px solid var(--border)',cursor:'pointer'}}
                               onMouseEnter={e=>{if(act&&!cellEd)setTooltip({task,dk,act,x:e.clientX,y:e.clientY});}}
@@ -1013,7 +1146,7 @@ function Timeline({tasks,setTasks,iStatus={},setIStatus}){
           <div style={{fontSize:11,fontWeight:700,color:'var(--txt1)',marginBottom:5,lineHeight:1.4}}>{tooltip.task.t}</div>
           <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:6}}>
             <span style={{width:7,height:7,borderRadius:2,background:PH[tooltip.act.ph].sl}}/>
-            <span style={{fontSize:11,color:PH[tooltip.act.ph].col,fontWeight:600}}>{tooltip.act.ph==='CUSTOM'&&tooltip.act.cl?tooltip.act.cl:tooltip.act.ph==='DEV'&&tooltip.task.r?tooltip.task.r:PH[tooltip.act.ph].lb}</span>
+            <span style={{fontSize:11,color:PH[tooltip.act.ph].col,fontWeight:600}}>{tooltip.act.ph==='CUSTOM'&&tooltip.act.cl?tooltip.act.cl:tooltip.act.ph==='DEV'&&tooltip.task.r?respList(tooltip.task.r).join(', '):PH[tooltip.act.ph].lb}</span>
             <span style={{fontSize:9,color:'var(--txt3)'}}>{tooltip.dk.split('-').slice(1).reverse().join('/')}</span>
           </div>
           {tooltip.act.lines.map((line,i)=>{const[dt,...rest]=line.split(' - ');return <div key={i} style={{display:'flex',gap:6,fontSize:10}}><span style={{color:'var(--cyan)',opacity:.7,fontFamily:'monospace',minWidth:32,flexShrink:0}}>{dt}</span><span style={{color:'var(--txt2)'}}>{rest.join(' - ')}</span></div>;})}
@@ -1478,76 +1611,7 @@ function DashboardView({tasks,iStatus={},riscos=[],deps=[]}){
   },[done]);
   const riscosAtivos=riscos.filter(r=>r.status==='Ativo');
   const riscosAltos=riscosAtivos.filter(r=>r.severidade==='Alta');
-  const respCounts=useMemo(()=>{const m={};active.forEach(t=>{if(t.r)m[t.r]=(m[t.r]||0)+1;});return m;},[active]);
-
-  // ---- Visão detalhada por iniciativa ----
-  const initiatives=useMemo(()=>{
-    const map={};
-    const hoje=new Date();hoje.setHours(0,0,0,0);
-    const eachDate=(txt,cb)=>{
-      if(!txt)return;
-      String(txt).split('\n').forEach(line=>{
-        if(!line.trim())return;
-        // Aceita datas em qualquer posição: 12/03, 12/03/26, 12/03/2026, 12-03
-        const re=/(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?/g;
-        let m,found=null;
-        while((m=re.exec(line))){
-          const dia=+m[1],mes=+m[2];
-          if(dia<1||dia>31||mes<1||mes>12)continue;
-          let ano=m[3]?+m[3]:2026;
-          if(ano<100)ano+=2000;
-          const d=new Date(ano,mes-1,dia);
-          if(isNaN(d))continue;
-          found=d;
-          break; // primeira data válida da linha
-        }
-        if(found)cb(found,line);
-      });
-    };
-    tasks.forEach(t=>{
-      const g=t.g||'Sem iniciativa';
-      if(!map[g])map[g]={nome:g,status:iStatus[g]||'Backlog',total:0,done:0,bloq:0,andamento:0,resp:new Set(),ini:null,fim:null,prd:null,plan:false};
-      const it=map[g];
-      it.total++;
-      if(DONE.includes(t.s))it.done++;
-      else if(t.s==='Bloqueado')it.bloq++;
-      else if(t.s==='Em andamento')it.andamento++;
-      if(t.r)it.resp.add(t.r);
-      const marca=(d,line,planejado)=>{
-        if(!it.ini||d<it.ini)it.ini=d;
-        if(!it.fim||d>it.fim)it.fim=d;
-        if(/deploy em prd/i.test(line)&&(!it.prd||d>it.prd))it.prd=d;
-        if(planejado&&d>hoje)it.plan=true;
-      };
-      eachDate(t.a,(d,l)=>marca(d,l,false));
-      eachDate(t.plan,(d,l)=>marca(d,l,true));
-    });
-    return Object.values(map).map(i=>{
-      const concluida=INIT_DONE_S.includes(i.status)||(i.total>0&&i.done===i.total);
-      const fim=concluida?(i.prd||i.fim):i.fim;
-      const dias=i.ini&&fim?Math.round((fim-i.ini)/864e5)+1:null;
-      return{...i,resp:[...i.resp],pct:i.total?Math.round(i.done/i.total*100):0,concluida,fim,dias};
-    });
-  },[tasks,iStatus]);
-
-  const initColumns=useMemo(()=>{
-    const ordem=[...INIT_BACKLOG_S,...INIT_BOARD_S,...INIT_DONE_S];
-    const presentes=[...new Set(initiatives.map(i=>i.status))];
-    const cols=ordem.filter(s=>presentes.includes(s)).concat(presentes.filter(s=>!ordem.includes(s)));
-    return cols.map(s=>({
-      status:s,
-      cfg:getISCfg(s),
-      itens:initiatives.filter(i=>i.status===s).sort((a,b)=>{
-        if(a.ini&&b.ini&&+a.ini!==+b.ini)return a.ini-b.ini;
-        if(a.ini&&!b.ini)return-1;
-        if(!a.ini&&b.ini)return 1;
-        return b.total-a.total;
-      })
-    }));
-  },[initiatives]);
-
-  const totalIniciativas=initiatives.length;
-  const iniciativasRisco=initiatives.filter(i=>i.bloq>0).length;
+  const respCounts=useMemo(()=>{const m={};active.forEach(t=>{respList(t.r).forEach(r=>{m[r]=(m[r]||0)+1;});});return m;},[active]);
 
   return(
     <div style={{padding:'22px 24px 48px',maxWidth:1280,margin:'0 auto'}}>
@@ -1596,78 +1660,6 @@ function DashboardView({tasks,iStatus={},riscos=[],deps=[]}){
               </div>
             ))}
         </div>
-      </div>
-
-      {/* ---- Visão por iniciativas ---- */}
-      <div style={{background:'#fff',border:'1px solid var(--border)',borderRadius:12,padding:'18px 20px',marginTop:20}}>
-        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16,flexWrap:'wrap',gap:8}}>
-          <div>
-            <div style={{fontSize:12,fontWeight:700,color:'var(--txt1)'}}>Iniciativas por status</div>
-            <div style={{fontSize:11,color:'var(--txt3)',marginTop:2}}>
-              {totalIniciativas} iniciativa{totalIniciativas!==1?'s':''} · {initColumns.length} status em uso
-              {iniciativasRisco>0&&<span style={{color:'#DC2626',fontWeight:600}}> · {iniciativasRisco} com tarefa bloqueada</span>}
-              {initiatives.filter(i=>!i.ini).length>0&&<span> · {initiatives.filter(i=>!i.ini).length} sem data registrada</span>}
-            </div>
-          </div>
-          <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
-            {initColumns.map(c=>(
-              <span key={c.status} style={{fontSize:10,fontWeight:600,padding:'3px 9px',borderRadius:99,background:c.cfg.bg,color:c.cfg.c,border:'1px solid '+c.cfg.c+'33'}}>
-                {c.itens.length} {c.status}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        {totalIniciativas===0
-          ?<div style={{fontSize:12,color:'var(--txt3)',padding:'18px 0'}}>Nenhuma iniciativa cadastrada.</div>
-          :<div style={{display:'flex',gap:14,overflowX:'auto',paddingBottom:6}}>
-            {initColumns.map(col=>(
-              <div key={col.status} style={{flex:'0 0 262px',minWidth:262,background:'var(--bg2)',borderRadius:10,border:'1px solid var(--border)',borderTop:'3px solid '+col.cfg.c,padding:'11px 11px 8px'}}>
-                <div style={{display:'flex',alignItems:'center',gap:7,marginBottom:10}}>
-                  <span style={{width:7,height:7,borderRadius:'50%',background:col.cfg.c,flexShrink:0}}/>
-                  <span style={{fontSize:11,fontWeight:700,color:'var(--txt1)',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{col.status}</span>
-                  <span style={{fontSize:10,fontWeight:700,color:col.cfg.c,background:col.cfg.bg,padding:'1px 7px',borderRadius:99}}>{col.itens.length}</span>
-                </div>
-                {col.itens.length===0
-                  ?<div style={{fontSize:11,color:'var(--txt3)',padding:'8px 0'}}>—</div>
-                  :col.itens.map(it=>(
-                    <div key={it.nome} style={{background:'#fff',border:'1px solid var(--border)',borderRadius:8,padding:'9px 10px',marginBottom:8}}>
-                      <div title={it.nome} style={{fontSize:12,fontWeight:600,color:'var(--txt1)',lineHeight:1.35,marginBottom:7,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{it.nome}</div>
-                      <div style={{display:'flex',alignItems:'center',gap:7,marginBottom:6}}>
-                        <div style={{flex:1,height:5,background:'var(--bg2)',borderRadius:99,overflow:'hidden'}}>
-                          <div style={{width:it.pct+'%',height:'100%',background:it.pct===100?'#059669':col.cfg.c,borderRadius:99}}/>
-                        </div>
-                        <span style={{fontSize:10,fontWeight:700,color:'var(--txt2)',flexShrink:0}}>{it.pct}%</span>
-                      </div>
-                      <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:6,fontSize:10,color:'var(--txt2)'}}>
-                        {it.ini
-                          ?<>
-                             <span title="Primeira movimentação registrada" style={{display:'inline-flex',alignItems:'center',gap:3}}>
-                               <span style={{width:5,height:5,borderRadius:'50%',background:'var(--txt3)'}}/>{fmtDate(it.ini)}
-                             </span>
-                             <span style={{flex:1,height:1,background:'var(--border)'}}/>
-                             <span title={it.concluida?'Deploy em PRD / última movimentação':'Última data prevista'} style={{display:'inline-flex',alignItems:'center',gap:3,fontWeight:600,color:it.concluida?'#059669':(it.plan?'#B45309':'var(--txt2)')}}>
-                               {fmtDate(it.fim)}
-                               <span style={{width:5,height:5,borderRadius:'50%',background:it.concluida?'#059669':(it.plan?'#B45309':'var(--txt3)')}}/>
-                             </span>
-                           </>
-                          :<span style={{color:'var(--txt3)',fontStyle:'italic'}}>Sem datas registradas</span>}
-                      </div>
-                      <div style={{display:'flex',flexWrap:'wrap',gap:5,fontSize:10,color:'var(--txt3)'}}>
-                        <span>{it.done}/{it.total} tarefas</span>
-                        {it.dias!==null&&<span>· {it.dias}d{it.concluida?'':' até agora'}</span>}
-                        {it.andamento>0&&<span style={{color:'#0891B2',fontWeight:600}}>· {it.andamento} em andamento</span>}
-                        {it.bloq>0&&<span style={{color:'#DC2626',fontWeight:700}}>· {it.bloq} bloqueada{it.bloq!==1?'s':''}</span>}
-                      </div>
-                      {it.resp.length>0&&
-                        <div style={{fontSize:10,color:'var(--txt3)',marginTop:5,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-                          {it.resp.slice(0,3).join(', ')}{it.resp.length>3?' +'+(it.resp.length-3):''}
-                        </div>}
-                    </div>
-                  ))}
-              </div>
-            ))}
-          </div>}
       </div>
     </div>
   );
@@ -1930,6 +1922,8 @@ function AppMain({currentUser,onLogout}){
   const[tasks,setTasks]=useState([]);
   const[iStatus,setIStatus]=useState({});
   const[tipos,setTipos]=useState({});
+  const[parents,setParents]=useState({});   // {idSubtarefa:idPai}
+  const[ordem,setOrdem]=useState({});       // {iniciativa:[ids na ordem do backlog]}
   const[deps,setDeps]=useState([]);
   const[riscos,setRiscos]=useState([]);
   const[nextId,setNextId]=useState(1);
@@ -1976,7 +1970,7 @@ function AppMain({currentUser,onLogout}){
         const ids=teams.map(t=>t.id);
         const tid=validTeamId;
         const g=k=>tid?dbGet(k,tid):dbGetAll(k,ids);
-        const[t,is,u,sp,tp,dp,rk]=await Promise.all([loadTasks(tid),g('istatus'),dbGet('users'),loadStatusProduto(tid),g('tipos'),g('dependencias'),g('riscos')]);
+        const[t,is,u,sp,tp,dp,rk,pa,od]=await Promise.all([loadTasks(tid),g('istatus'),dbGet('users'),loadStatusProduto(tid),g('tipos'),g('dependencias'),g('riscos'),g('parents'),g('ordem')]);
         if(Array.isArray(sp)&&sp.length>0)setStatusProduto(sp);
         const td=Array.isArray(t)&&t.length>0?t:[];
         setTasks(td);
@@ -1984,9 +1978,11 @@ function AppMain({currentUser,onLogout}){
         if(is&&typeof is==='object')setIStatus(is);
         if(u&&Array.isArray(u)&&u.length>0)setUsers(u);
         if(tp&&typeof tp==='object')setTipos(tp);
+        setParents(pa&&typeof pa==='object'&&!Array.isArray(pa)?pa:{});
+        setOrdem(od&&typeof od==='object'&&!Array.isArray(od)?od:{});
         if(Array.isArray(dp))setDeps(dp);
         if(Array.isArray(rk))setRiscos(rk);
-      }catch(e){console.error('Load error:',e);setTasks([]);setNextId(1);}
+      }catch(e){console.error('Load error:',e);setTasks([]);setNextId(1);setParents({});setOrdem({});}
       setLoaded(true);
     })();
   },[teamsReady,teams,validTeamId]);
@@ -2007,6 +2003,8 @@ function AppMain({currentUser,onLogout}){
   useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('istatus',iStatus,validTeamId),600);return()=>clearTimeout(t);},[iStatus,rw,validTeamId]);
   useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('users',users),600);return()=>clearTimeout(t);},[users,rw]);
   useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('tipos',tipos,validTeamId),600);return()=>clearTimeout(t);},[tipos,rw,validTeamId]);
+  useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('parents',parents,validTeamId),600);return()=>clearTimeout(t);},[parents,rw,validTeamId]);
+  useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('ordem',ordem,validTeamId),600);return()=>clearTimeout(t);},[ordem,rw,validTeamId]);
   useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('dependencias',deps,validTeamId),600);return()=>clearTimeout(t);},[deps,rw,validTeamId]);
   useEffect(()=>{if(!rw)return;const t=setTimeout(()=>dbSet('riscos',riscos,validTeamId),600);return()=>clearTimeout(t);},[riscos,rw,validTeamId]);
   const active=useMemo(()=>tasks.filter(t=>!DONE.includes(t.s)),[tasks]);
@@ -2018,6 +2016,7 @@ function AppMain({currentUser,onLogout}){
 
   const openCreate=(group=null)=>{setEditing(group?{_preGroup:group}:null);setDrawerOpen(true);};
   const openEdit=(task,e)=>{e.stopPropagation();setEditing(task);setDrawerOpen(true);};
+  const openCreateSub=pai=>{setEditing({_preGroup:pai.g,_preParent:pai.id});setDrawerOpen(true);};
   const handleMultiSave=(items,startId)=>{
     const today=new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
     const newTasks=items.map((data,i)=>({...data,id:startId+i,a:data.a||today+' - Card criado'}));
@@ -2026,19 +2025,35 @@ function AppMain({currentUser,onLogout}){
     setTipos(prev=>{const n={...prev};newTasks.forEach(t=>{n[t.id]=t.tipo||'Tarefa';});return n;});
     setToast(newTasks.length+' card'+(newTasks.length!==1?'s':'')+' criado'+(newTasks.length!==1?'s':'')+' em "'+items[0].g+'"');
   };
+  const setParent=(id,parent)=>setParents(prev=>{
+    const n={...prev};
+    if(parent==null||parent==='')delete n[id];
+    else n[id]=Number(parent);
+    return n;
+  });
   const handleSave=(data,editId)=>{
-    const{tipo,...rest}=data;
+    const{tipo,parent,...rest}=data;
     if(editId!=null){
       setTasks(prev=>prev.map(t=>t.id===editId?{...t,...rest}:t));
       setTipos(prev=>({...prev,[editId]:tipo||'Tarefa'}));
-      setToast('Tarefa atualizada!');
+      setParent(editId,parent);
+      setToast(parent?'Subtarefa atualizada!':'Tarefa atualizada!');
     }else{
       const today=new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
       const a=rest.a||today+' - Card criado';
       const id=nextId;
       setTasks(prev=>[...prev,{...rest,id,a}]);setNextId(n=>n+1);
       setTipos(prev=>({...prev,[id]:tipo||'Tarefa'}));
-      setToast('Tarefa criada em "'+rest.g+'"');
+      setParent(id,parent);
+      // a subtarefa nasce logo abaixo do pai na ordem do backlog
+      if(parent!=null)setOrdem(prev=>{
+        const arr=[...((prev&&prev[rest.g])||[])];
+        const i=arr.indexOf(Number(parent));
+        if(i<0)return prev;
+        arr.splice(i+1,0,id);
+        return{...prev,[rest.g]:arr};
+      });
+      setToast(parent?'Subtarefa criada!':'Tarefa criada em "'+rest.g+'"');
     }
   };
 
@@ -2123,7 +2138,7 @@ function AppMain({currentUser,onLogout}){
                 </div>
               );})}
               <button onClick={toggleTheme} title={theme==='light'?'Modo escuro':'Modo claro'} style={{width:30,height:30,borderRadius:99,background:'var(--bg2)',border:'1px solid var(--border)',color:'var(--txt2)',cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>{theme==='light'?'🌙':'☀️'}</button>
-              <button onClick={()=>exportXLSX(tasks)} style={{padding:'5px 11px',background:'rgba(16,185,129,.1)',border:'1px solid rgba(16,185,129,.25)',borderRadius:99,color:'#34D399',fontSize:11,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>Excel</button>
+              <button onClick={()=>exportXLSX(tasks,parents,tipos)} style={{padding:'5px 11px',background:'rgba(16,185,129,.1)',border:'1px solid rgba(16,185,129,.25)',borderRadius:99,color:'#34D399',fontSize:11,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>Excel</button>
               <button onClick={()=>setShowIM(true)} style={{padding:'5px 11px',background:'rgba(167,139,250,.1)',border:'1px solid rgba(167,139,250,.25)',borderRadius:99,color:'#A78BFA',fontSize:11,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap'}}>Iniciativas</button>
               {canEdit&&openCreate&&<button onClick={openCreate} style={{padding:'6px 18px',background:'linear-gradient(135deg,var(--accent),var(--cyan))',border:'none',borderRadius:99,color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>+ Nova Tarefa</button>}
               {/* User menu */}
@@ -2148,14 +2163,14 @@ function AppMain({currentUser,onLogout}){
         </div>
         <div style={{flex:1,minWidth:0}}>
           {view==='dashboard'?<DashboardView tasks={tasks} iStatus={iStatus} riscos={riscos} deps={deps}/>
-            :view==='board'?<BoardView tasks={boardTasks} setTasks={setTasks} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null} iStatus={iStatus} setIStatus={canEdit?setIStatus:null} openBulkCreate={canEdit?setBulkCreate:null} statusProduto={statusProduto} tipos={tipos} resps={resps}/>
+            :view==='board'?<BoardView tasks={boardTasks} setTasks={setTasks} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null} iStatus={iStatus} setIStatus={canEdit?setIStatus:null} openBulkCreate={canEdit?setBulkCreate:null} statusProduto={statusProduto} tipos={tipos} resps={resps} parents={parents} openCreateSub={canEdit?openCreateSub:null}/>
             :view==='timeline'?<Timeline tasks={boardTasks} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus}/>
-            :view==='backlog'?<BacklogView tasks={tasks} iStatus={iStatus} statusProduto={statusProduto} setIStatus={canEdit?setIStatus:null} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null}/>
+            :view==='backlog'?<BacklogView tasks={tasks} iStatus={iStatus} statusProduto={statusProduto} setIStatus={canEdit?setIStatus:null} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null} parents={parents} tipos={tipos} ordem={ordem} setOrdem={canEdit?setOrdem:null} openCreateSub={canEdit?openCreateSub:null}/>
             :view==='depriscos'?<DependenciasRiscosView tasks={tasks} deps={deps} setDeps={setDeps} riscos={riscos} setRiscos={setRiscos} allG={allG} canEdit={canEdit}/>
             :<HistoricoView tasks={historicoTasks} setTasks={setTasks} openEdit={openEdit} iStatus={iStatus} setIStatus={canEdit?setIStatus:null} statusProduto={statusProduto} openBulkCreate={canEdit?setBulkCreate:null} canEdit={canEdit}/>}
         </div>
       </div>
-      <Drawer open={drawerOpen} onClose={()=>setDrawerOpen(false)} onSave={handleSave} grupos={allG} allResp={[...new Set([...resps,...(editing&&editing.r?[editing.r]:[])])].sort((a,b)=>a.localeCompare(b,'pt-BR'))} editing={editing} tipos={tipos}/>
+      <Drawer open={drawerOpen} onClose={()=>setDrawerOpen(false)} onSave={handleSave} grupos={allG} parents={parents} tasks={tasks} allResp={[...new Set([...resps,...(editing?respList(editing.r):[])])].sort((a,b)=>a.localeCompare(b,'pt-BR'))} editing={editing} tipos={tipos}/>
       {toast&&<Toast msg={toast} onDone={()=>setToast(null)}/>}
       {showIM&&<InitiativeManager tasks={tasks} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus} onClose={()=>setShowIM(false)}/>}
       {showTeamMgr&&<TeamManager teams={teams} setTeams={setTeams} teamId={validTeamId} setTeamId={setTeamId} onClose={()=>setShowTeamMgr(false)}/>}
@@ -2190,10 +2205,11 @@ function ResponsavelManager({ctl,onClose,teamId,teamNome,teams=[],setTeamId,task
   const carga=useMemo(()=>{
     const m={};
     (tasks||[]).forEach(t=>{
-      const r=(t.r||'').trim();if(!r)return;
-      if(!m[r])m[r]={total:0,ativas:0};
-      m[r].total++;
-      if(!ATIVOS.includes(t.s))m[r].ativas++;
+      respList(t.r).forEach(r=>{
+        if(!m[r])m[r]={total:0,ativas:0};
+        m[r].total++;
+        if(!ATIVOS.includes(t.s))m[r].ativas++;
+      });
     });
     return m;
   },[tasks]);
@@ -2211,11 +2227,11 @@ function ResponsavelManager({ctl,onClose,teamId,teamNome,teams=[],setTeamId,task
 
   const cascadeRename=(antigo,novo)=>{
     if(!setTasks)return;
-    setTasks(prev=>prev.map(t=>(t.r||'').trim()===antigo?{...t,r:novo}:t));
+    setTasks(prev=>prev.map(t=>hasResp(t,antigo)?{...t,r:respJoin(respList(t.r).map(x=>x===antigo?novo:x))}:t));
   };
   const cascadeReassign=(nome,destino)=>{
     if(!setTasks)return;
-    setTasks(prev=>prev.map(t=>(t.r||'').trim()===nome?{...t,r:destino||''}:t));
+    setTasks(prev=>prev.map(t=>hasResp(t,nome)?{...t,r:respJoin(respList(t.r).map(x=>x===nome?(destino||''):x))}:t));
   };
 
   const doAdd=async(nome)=>{
@@ -2465,7 +2481,12 @@ function ResponsavelManager({ctl,onClose,teamId,teamNome,teams=[],setTeamId,task
     </div>
   );
 }
-function BacklogView({tasks,iStatus,statusProduto,setIStatus,openCreate,openEdit}){
+function BacklogView({tasks,iStatus,statusProduto,setIStatus,openCreate,openEdit,parents={},tipos={},ordem={},setOrdem,openCreateSub}){
+  const[busca,setBusca]=useState('');
+  const[fechadas,setFechadas]=useState(new Set());
+  const toggleFechada=g=>setFechadas(prev=>{const n=new Set(prev);n.has(g)?n.delete(g):n.add(g);return n;});
+  const canOrder=Boolean(setOrdem);
+
   const backlogGrupos=useMemo(()=>{
     const grupos=[...new Set(tasks.map(t=>t.g))];
     return grupos
@@ -2478,6 +2499,49 @@ function BacklogView({tasks,iStatus,statusProduto,setIStatus,openCreate,openEdit
 
   const allTasks=tasks.filter(t=>backlogGrupos.includes(t.g));
 
+  /* Ordenacao manual: `ordem[grupo]` guarda os ids na ordem escolhida.
+     Quem ainda nao foi ordenado cai no fim, seguindo a numeracao da tarefa. */
+  const posOf=(g,t)=>{
+    const arr=(ordem&&ordem[g])||[];
+    const i=arr.indexOf(t.id);
+    return i>=0?i:1000000+tn(t.t);
+  };
+  const cmpG=g=>(a,b)=>posOf(g,a)-posOf(g,b);
+
+  const listaDo=g=>{
+    let gt=tasks.filter(t=>t.g===g);
+    if(busca){
+      const q=busca.toLowerCase();
+      const bate=t=>((t.t||'')+' '+(t.c||'')+' '+(t.r||'')).toLowerCase().includes(q);
+      const ids=new Set(gt.filter(bate).map(t=>t.id));
+      // mantem o pai visivel quando so a subtarefa casa com a busca (e vice-versa)
+      gt.forEach(t=>{const pa=parentOf(parents,t.id);if(ids.has(t.id)&&pa!==null)ids.add(pa);});
+      gt.forEach(t=>{const pa=parentOf(parents,t.id);if(pa!==null&&ids.has(pa))ids.add(t.id);});
+      gt=gt.filter(t=>ids.has(t.id));
+    }
+    return hierarchize(gt,parents,cmpG(g));
+  };
+
+  // Move a tarefa entre os seus irmaos (mesmo pai) e regrava a ordem do grupo
+  const mover=(g,task,dir)=>{
+    if(!canOrder)return;
+    const gt=tasks.filter(t=>t.g===g);
+    const pai=parentOf(parents,task.id);
+    const irmaos=gt.filter(t=>parentOf(parents,t.id)===pai).sort(cmpG(g));
+    const i=irmaos.findIndex(t=>t.id===task.id);
+    const j=i+dir;
+    if(i<0||j<0||j>=irmaos.length)return;
+    const arr=[...irmaos];
+    const tmp=arr[i];arr[i]=arr[j];arr[j]=tmp;
+    const rank=new Map();arr.forEach((t,k)=>rank.set(t.id,k));
+    const rk=t=>rank.has(t.id)?rank.get(t.id):posOf(g,t);
+    const ordenado=hierarchize(gt,parents,(a,b)=>rk(a)-rk(b));
+    setOrdem(prev=>({...prev,[g]:ordenado.map(t=>t.id)}));
+  };
+
+  const SCOL={"Em andamento":"#0891B2","Bloqueado":"#DC2626","Nao Iniciado":"#6B7280","Aguard. Deploy PRD":"#B45309","Paralisado":"#EA580C","Finalizado":"#059669","Entregue":"#047857","Deploy PRD":"#0369A1","Pendente":"#7C3AED"};
+  const btnIco={width:20,height:18,borderRadius:5,background:'transparent',border:'1px solid var(--border)',color:'var(--txt3)',cursor:'pointer',fontSize:9,lineHeight:1,display:'flex',alignItems:'center',justifyContent:'center',padding:0};
+
   return(
     <div>
       <div style={{padding:'14px 24px 12px',borderBottom:'1px solid var(--border)',background:'var(--bg1)',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:10}}>
@@ -2486,7 +2550,10 @@ function BacklogView({tasks,iStatus,statusProduto,setIStatus,openCreate,openEdit
           <span style={{fontSize:13,fontWeight:700,color:'var(--txt1)'}}>Backlog de Iniciativas</span>
           <span style={{fontSize:11,color:'var(--txt3)',background:'var(--bg2)',border:'1px solid var(--border)',padding:'1px 9px',borderRadius:99}}>{backlogGrupos.length} iniciativa{backlogGrupos.length!==1?'s':''} · {allTasks.length} tarefa{allTasks.length!==1?'s':''}</span>
         </div>
-        {openCreate&&<button onClick={openCreate} style={{padding:'6px 16px',background:'linear-gradient(135deg,var(--accent),var(--cyan))',border:'none',borderRadius:8,color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}}>+ Nova Tarefa</button>}
+        <div style={{display:'flex',alignItems:'center',gap:8}}>
+          <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar no backlog..." style={{padding:'7px 11px',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:8,color:'var(--txt1)',fontSize:12.5,outline:'none',minWidth:200}}/>
+          {openCreate&&<button onClick={()=>openCreate()} style={{padding:'6px 16px',background:'linear-gradient(135deg,var(--accent),var(--cyan))',border:'none',borderRadius:8,color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>+ Nova Tarefa</button>}
+        </div>
       </div>
 
       {backlogGrupos.length===0
@@ -2498,33 +2565,56 @@ function BacklogView({tasks,iStatus,statusProduto,setIStatus,openCreate,openEdit
         :<div style={{padding:'20px 24px',display:'flex',flexDirection:'column',gap:14}}>
            {backlogGrupos.map(grupo=>{
              const gtasks=tasks.filter(t=>t.g===grupo);
+             const lista=listaDo(grupo);
+             const subs=gtasks.filter(t=>parentOf(parents,t.id)!==null).length;
              const smap={};
              gtasks.forEach(t=>{smap[t.s]=(smap[t.s]||0)+1;});
-             const SCOL={"Em andamento":"#0891B2","Bloqueado":"#DC2626","Nao Iniciado":"#6B7280","Aguard. Deploy PRD":"#B45309","Paralisado":"#EA580C","Finalizado":"#059669","Entregue":"#047857","Deploy PRD":"#0369A1","Pendente":"#7C3AED"};
+             const aberta=!fechadas.has(grupo);
              return(
                <div key={grupo} style={{background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:12,overflow:'hidden',boxShadow:'0 1px 4px rgba(0,0,0,.06)'}}>
-                 <div style={{padding:'14px 18px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',gap:10,background:'var(--bg2)'}}>
-                   <div style={{flex:1}}>
+                 <div style={{padding:'14px 18px',borderBottom:aberta?'1px solid var(--border)':'none',display:'flex',alignItems:'center',gap:10,background:'var(--bg2)'}}>
+                   <button onClick={()=>toggleFechada(grupo)} title={aberta?'Recolher':'Expandir'} style={{background:'none',border:'none',color:'var(--txt3)',cursor:'pointer',padding:2,display:'flex',transform:aberta?'rotate(0deg)':'rotate(-90deg)',transition:'transform .15s'}}><Ic n="chevron" s={15} c="currentColor"/></button>
+                   <div style={{flex:1,minWidth:0}}>
                      <div style={{fontSize:14,fontWeight:700,color:'var(--txt1)'}}>{grupo}</div>
                      <div style={{display:'flex',height:4,borderRadius:4,overflow:'hidden',marginTop:6,gap:1,maxWidth:200}}>
-                       {Object.entries(smap).map(([s,n])=><div key={s} title={s+': '+n} style={{flex:n,background:SCOL[s]||'#9CA3AF',minWidth:2}}/>)}
+                       {Object.entries(smap).map(([st,n])=><div key={st} title={st+': '+n} style={{flex:n,background:SCOL[st]||'#9CA3AF',minWidth:2}}/>)}
                      </div>
                    </div>
-                   <span style={{fontSize:11,color:'var(--txt3)',background:'var(--bg)',border:'1px solid var(--border)',padding:'2px 9px',borderRadius:99}}>{gtasks.length} tarefa{gtasks.length!==1?'s':''}</span>
+                   <span style={{fontSize:11,color:'var(--txt3)',background:'var(--bg)',border:'1px solid var(--border)',padding:'2px 9px',borderRadius:99,whiteSpace:'nowrap'}}>{gtasks.length} tarefa{gtasks.length!==1?'s':''}{subs?' · '+subs+' sub':''}</span>
+                   {openCreate&&<button onClick={()=>openCreate(grupo)} title="Adicionar tarefa nesta iniciativa" style={{padding:'4px 11px',borderRadius:7,background:'rgba(37,99,235,.08)',border:'1px solid rgba(37,99,235,.2)',color:'var(--accent)',fontSize:11.5,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap'}}>+ Tarefa</button>}
                    {setIStatus&&<select value={iStatus[grupo]||'Backlog'} onChange={e=>setIStatus(prev=>({...prev,[grupo]:e.target.value}))}
                      style={{fontSize:11,fontWeight:600,padding:'4px 10px',borderRadius:7,border:'1px solid rgba(107,114,128,.3)',background:'rgba(107,114,128,.08)',color:'#6B7280',cursor:'pointer',outline:'none'}}>
-                     {statusProduto.map(s=><option key={s} value={s}>{s}</option>)}
+                     {statusProduto.map(st=><option key={st} value={st}>{st}</option>)}
                    </select>}
                  </div>
-                 <div style={{padding:'10px 18px',display:'flex',flexWrap:'wrap',gap:6}}>
-                   {gtasks.slice(0,6).map(t=>(
-                     <div key={t.id} onClick={()=>openEdit&&openEdit(t,{stopPropagation:()=>{}})} style={{padding:'5px 10px',borderRadius:6,background:'var(--bg)',border:'1px solid var(--border)',fontSize:11,color:'var(--txt2)',cursor:openEdit?'pointer':'default',display:'flex',alignItems:'center',gap:6,maxWidth:260}} title={t.t}>
-                       <span style={{width:6,height:6,borderRadius:'50%',background:SCOL[t.s]||'#9CA3AF',flexShrink:0}}/>
-                       <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.t}</span>
-                     </div>
-                   ))}
-                   {gtasks.length>6&&<span style={{fontSize:11,color:'var(--txt3)',padding:'5px 0'}}>+{gtasks.length-6} mais...</span>}
-                 </div>
+                 {aberta&&(lista.length===0
+                   ?<div style={{padding:'16px 18px',fontSize:12,color:'var(--txt3)'}}>Nenhuma tarefa corresponde à busca.</div>
+                   :<div>
+                      {lista.map((t,i)=>{
+                        const depth=t._depth||0;
+                        const nSubs=childrenOf(gtasks,parents,t.id).length;
+                        return(
+                          <div key={t.id} style={{display:'flex',alignItems:'center',gap:9,padding:'8px 18px',borderBottom:i<lista.length-1?'1px solid var(--border)':'none',background:depth?'var(--bg2)':'transparent'}}>
+                            {canOrder&&<div style={{display:'flex',flexDirection:'column',gap:2,flexShrink:0}}>
+                              <button onClick={()=>mover(grupo,t,-1)} title="Subir" style={btnIco}>&#9650;</button>
+                              <button onClick={()=>mover(grupo,t,1)} title="Descer" style={btnIco}>&#9660;</button>
+                            </div>}
+                            <div style={{paddingLeft:depth*20,display:'flex',alignItems:'center',gap:8,flex:1,minWidth:0}}>
+                              {depth>0&&<span title="Subtarefa" style={{color:'var(--txt3)',fontFamily:'monospace',fontSize:12,flexShrink:0}}>&#8627;</span>}
+                              <span style={{width:7,height:7,borderRadius:'50%',background:SCOL[t.s]||'#9CA3AF',flexShrink:0}} title={t.s}/>
+                              <TipoBadge tipo={tipos[t.id]}/>
+                              {t.c&&<span style={{fontFamily:'monospace',fontSize:10.5,color:'var(--txt2)',background:'var(--bg)',padding:'1px 5px',borderRadius:4,border:'1px solid var(--border)',flexShrink:0}}>{t.c}</span>}
+                              <span onClick={()=>openEdit&&openEdit(t,{stopPropagation:()=>{}})} title={t.t} style={{fontSize:12.5,color:'var(--txt1)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',cursor:openEdit?'pointer':'default'}}>{t.t}</span>
+                              {nSubs>0&&<span style={{fontSize:10,fontWeight:700,color:'var(--txt2)',background:'var(--bg3)',border:'1px solid var(--border)',borderRadius:99,padding:'1px 7px',flexShrink:0}}>{nSubs} sub</span>}
+                            </div>
+                            <div style={{flexShrink:0,maxWidth:170,overflow:'hidden'}}><RespAvatars r={t.r} size={20}/></div>
+                            {openCreateSub&&depth===0&&<button onClick={()=>openCreateSub(t)} title="Adicionar subtarefa" style={{padding:'3px 9px',borderRadius:6,background:'transparent',border:'1px dashed var(--border2)',color:'var(--txt2)',fontSize:11,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap',flexShrink:0}}>+ Sub</button>}
+                            {openEdit&&<button onClick={()=>openEdit(t,{stopPropagation:()=>{}})} title="Editar" style={{width:26,height:26,borderRadius:7,background:'rgba(180,83,9,.07)',border:'1px solid rgba(180,83,9,.18)',color:'#B45309',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><Ic n="edit" s={12} c="currentColor"/></button>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                 )}
                </div>
              );
            })}
@@ -2533,6 +2623,7 @@ function BacklogView({tasks,iStatus,statusProduto,setIStatus,openCreate,openEdit
     </div>
   );
 }
+
 
 
 /* ══════════════════════════════════════════════════════
