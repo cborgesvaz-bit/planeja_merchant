@@ -60,7 +60,7 @@ function LoadingScreen(){
 
 
 const SC={"Em andamento":{c:"#0891B2",bg:"rgba(8,145,178,.1)",d:"#0891B2",p:true},"Bloqueado":{c:"#DC2626",bg:"rgba(220,38,38,.1)",d:"#DC2626",p:false},"Nao Iniciado":{c:"#6B7280",bg:"rgba(107,114,128,.1)",d:"#6B7280",p:false},"Aguard. Deploy PRD":{c:"#B45309",bg:"rgba(180,83,9,.1)",d:"#B45309",p:false},"Paralisado":{c:"#EA580C",bg:"rgba(234,88,12,.1)",d:"#EA580C",p:false},"Finalizado":{c:"#059669",bg:"rgba(5,150,105,.1)",d:"#059669",p:false},"Entregue":{c:"#047857",bg:"rgba(4,120,87,.1)",d:"#047857",p:false},"Pendente":{c:"#7C3AED",bg:"rgba(124,58,237,.1)",d:"#7C3AED",p:false},"Deploy PRD":{c:"#0369A1",bg:"rgba(3,105,161,.12)",d:"#0369A1",p:false}};
-const PH={PRD:{lb:"PRD",col:"#047857",sl:"rgba(4,120,87,.75)",pr:6},QA:{lb:"Q.A",col:"#2563EB",sl:"rgba(37,99,235,.75)",pr:5},STG:{lb:"STG",col:"#B45309",sl:"rgba(180,83,9,.75)",pr:4},MR:{lb:"MR",col:"#7C3AED",sl:"rgba(124,58,237,.75)",pr:3},DEV:{lb:"Dev",col:"#0891B2",sl:"rgba(8,145,178,.75)",pr:2},BLOCKED:{lb:"Bloq.",col:"#DC2626",sl:"rgba(220,38,38,.75)",pr:1},CUSTOM:{lb:"?",col:"#6366F1",sl:"rgba(99,102,241,.75)",pr:0}};
+const PH={PRD:{lb:"PRD",col:"#047857",sl:"rgba(4,120,87,.75)",pr:6},QA:{lb:"Q.A",col:"#2563EB",sl:"rgba(37,99,235,.75)",pr:5},STG:{lb:"STG",col:"#B45309",sl:"rgba(180,83,9,.75)",pr:4},MR:{lb:"MR",col:"#7C3AED",sl:"rgba(124,58,237,.75)",pr:3},DEV:{lb:"Dev",col:"#0891B2",sl:"rgba(8,145,178,.75)",pr:2},AGPRD:{lb:"Ag. PRD",col:"#65A30D",sl:"rgba(101,163,13,.75)",pr:5.5},UNBLOCK:{lb:"Desbloq.",col:"#0D9488",sl:"rgba(13,148,136,.75)",pr:1.5},BLOCKED:{lb:"Bloq.",col:"#DC2626",sl:"rgba(220,38,38,.75)",pr:1},CUSTOM:{lb:"?",col:"#6366F1",sl:"rgba(99,102,241,.75)",pr:0}};
 const DONE=["Finalizado","Entregue"];
 
 // Initiative status color config — names must match status_produto table exactly
@@ -89,7 +89,7 @@ let IS_CFG={...IS_CFG_BASE};
 function getISCfg(name){
   return IS_CFG[name]||{c:"#6B7280",bg:"rgba(107,114,128,.1)",dot:"#6B7280"};
 }
-const PD={DEV:"Seguindo com o desenvolvimento",MR:"Liberado MR para validacao",STG:"Deploy em STG",QA:"Q.A em andamento",PRD:"Deploy em PRD",BLOCKED:"Bloqueado"};
+const PD={DEV:"Seguindo com o desenvolvimento",MR:"Liberado MR para validacao",STG:"Deploy em STG",QA:"Q.A em andamento",PRD:"Deploy em PRD",AGPRD:"Aguardando deploy em PRD",UNBLOCK:"Card DESBLOQUEADO",BLOCKED:"Bloqueado"};
 // Tipo do item de trabalho (Epico / Historia / Tarefa)
 const TIPO_CFG={
   "Epico":{c:"#7C3AED",bg:"rgba(124,58,237,.12)",lb:"Épico"},
@@ -324,14 +324,34 @@ const T0=[
 function parseDate(s){if(!s||!s.includes('/'))return null;const[d,m]=s.split('/').map(Number);if(!d||!m)return null;return new Date(2026,m-1,d);}
 function weekStart(d){const x=new Date(d);const day=x.getDay();x.setDate(x.getDate()-day+(day===0?-6:1));x.setHours(0,0,0,0);return x;}
 function fmtDate(d){return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});}
-function detectPhase(text){const t=text.toLowerCase();if(/\[.+\]/.test(text))return'CUSTOM';if(t.includes('prd'))return'PRD';if(t.includes('q.a'))return'QA';if(t.includes('stg'))return'STG';if(t.includes('liberado mr')||t.includes('mr validado'))return'MR';if(t.includes('bloqueado'))return'BLOCKED';return'DEV';}
-function extractCustomLabel(text){const m=text.match(/\[([^\]]+)\]/);return m?m[1]:null;}
+function IGNORE_RE(){return /card\s+criad[oa]/i;}
+function isIgnoredLine(text){return IGNORE_RE().test(text);}
+function detectPhase(text){
+  const t=text.toLowerCase();
+  if(t.includes('desbloqueado')||t.includes('desbloq'))return'UNBLOCK';
+  if(/\[.+\]/.test(text))return'CUSTOM';
+  if((t.includes('mr validado')||t.includes('liberado mr'))&&t.includes('stg'))return'CUSTOM';
+  if((t.includes('aguard')||t.includes('aguar.')||t.includes('aguard.'))&&t.includes('prd'))return'AGPRD';
+  if(t.includes('prd'))return'PRD';
+  if(t.includes('q.a'))return'QA';
+  if(t.includes('stg'))return'STG';
+  if(t.includes('liberado mr')||t.includes('mr validado'))return'MR';
+  if(t.includes('bloqueado'))return'BLOCKED';
+  return'DEV';
+}
+function extractCustomLabel(text){
+  const m=text.match(/\[([^\]]+)\]/);
+  if(m)return m[1];
+  const t=text.toLowerCase();
+  if((t.includes('mr validado')||t.includes('liberado mr'))&&t.includes('stg'))return'MR>STG';
+  return null;
+}
 function getTaskDayMap(task){
   const map={};
   // Read acompanhamento (Board) — read-only in timeline
-  if(task.a){task.a.split('\n').forEach(line=>{const m=line.match(/^(\d{1,2}\/\d{1,2})/);if(!m)return;const date=parseDate(m[1]);if(!date)return;const dk=date.toISOString().slice(0,10);const ph=detectPhase(line);const cl=ph==='CUSTOM'?extractCustomLabel(line):null;const ex=map[dk];if(!ex||PH[ph].pr>PH[ex.ph].pr){map[dk]={ph,cl,lines:[line],src:'board'};}else if(ex.ph===ph){ex.lines.push(line);}});}
+  if(task.a){task.a.split('\n').forEach(line=>{const m=line.match(/^(\d{1,2}\/\d{1,2})/);if(!m)return;if(isIgnoredLine(line))return;const date=parseDate(m[1]);if(!date)return;const dk=date.toISOString().slice(0,10);const ph=detectPhase(line);const cl=ph==='CUSTOM'?extractCustomLabel(line):null;const ex=map[dk];if(!ex||PH[ph].pr>PH[ex.ph].pr){map[dk]={ph,cl,lines:[line],src:'board'};}else if(ex.ph===ph){ex.lines.push(line);}});}
   // Read plan (Timeline-only) — overrides board for same day
-  if(task.plan){task.plan.split('\n').forEach(line=>{const m=line.match(/^(\d{1,2}\/\d{1,2})/);if(!m)return;const date=parseDate(m[1]);if(!date)return;const dk=date.toISOString().slice(0,10);const ph=detectPhase(line);const cl=ph==='CUSTOM'?extractCustomLabel(line):null;map[dk]={ph,cl,lines:[line],src:'plan'};});}
+  if(task.plan){task.plan.split('\n').forEach(line=>{const m=line.match(/^(\d{1,2}\/\d{1,2})/);if(!m)return;if(isIgnoredLine(line))return;const date=parseDate(m[1]);if(!date)return;const dk=date.toISOString().slice(0,10);const ph=detectPhase(line);const cl=ph==='CUSTOM'?extractCustomLabel(line):null;map[dk]={ph,cl,lines:[line],src:'plan'};});}
   return map;
 }
 function sortLog(lines){return[...lines].sort((a,b)=>{const p=s=>{const m=s.match(/^(\d{1,2})\/(\d{1,2})/);return m?(+m[2])*100+(+m[1]):0;};return p(b)-p(a);});}
@@ -1035,7 +1055,7 @@ function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,ope
   );
 }
 
-function Timeline({tasks,setTasks,iStatus={},setIStatus}){
+function Timeline({tasks,setTasks,iStatus={},setIStatus,parents={},tipos={}}){
   const[tooltip,setTooltip]=useState(null);
   const[cellEd,setCellEd]=useState(null);
   const[fGrupo,setFGrupo]=useState([]);
@@ -1073,9 +1093,9 @@ function Timeline({tasks,setTasks,iStatus={},setIStatus}){
     if(curM)ms.push({lb:curM,dc:mDC,wc:wkList.length-mSt,si:mSt});
     const grp={};
     const grupos=[...new Set(tasks.map(t=>t.g))].sort((a,b)=>{const ta=tasks.find(x=>x.g===a),tb=tasks.find(x=>x.g===b);return (ta?tn(ta.t):0)-(tb?tn(tb.t):0);});
-    grupos.forEach(g=>{grp[g]=tasks.filter(t=>t.g===g).sort((a,b)=>tn(a.t)-tn(b.t));});
+    grupos.forEach(g=>{grp[g]=hierarchize(tasks.filter(t=>t.g===g),parents,(a,b)=>tn(a.t)-tn(b.t));});
     return{allDays:days,allWeeks:wkList,mSpans:ms,grouped:grp};
-  },[tasks]);
+  },[tasks,parents]);
 
   useEffect(()=>{
     if(initRef.current||mSpans.length===0)return;
@@ -1211,10 +1231,14 @@ function Timeline({tasks,setTasks,iStatus={},setIStatus}){
                 const cfg=SC[task.s]||{};
                 return(
                   <div key={task.id} style={{display:'flex',alignItems:'stretch',minHeight:RH,borderBottom:'1px solid var(--border)'}} onMouseLeave={()=>{if(!cellEd)setTooltip(null);}}>
-                    <div style={{width:NW,flexShrink:0,position:'sticky',left:0,zIndex:10,padding:'5px 10px 5px 24px',display:'flex',alignItems:'flex-start',gap:5,borderRight:'1px solid var(--border2)',background:'#FFFFFF'}}>
+                    <div style={{width:NW,flexShrink:0,position:'sticky',left:0,zIndex:10,padding:'5px 10px 5px '+(24+(task._depth||0)*16)+'px',display:'flex',alignItems:'flex-start',gap:5,borderRight:'1px solid var(--border2)',background:'#FFFFFF'}}>
+                      {(task._depth||0)>0&&<span style={{fontSize:10,color:'var(--txt3)',flexShrink:0,marginTop:1}}>&#8627;</span>}
                       <span style={{width:5,height:5,borderRadius:'50%',background:cfg.d||'#64748B',flexShrink:0,marginTop:3}}/>
                       <div style={{flex:1,minWidth:0}}>
-                        <span style={{fontSize:12,color:'var(--txt1)',lineHeight:1.4,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',display:'block'}}>{task.t}</span>
+                        <span style={{fontSize:(task._depth||0)>0?11:12,color:(task._depth||0)>0?'var(--txt2)':'var(--txt1)',lineHeight:1.4,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',display:'block'}}>
+                          {(task._depth||0)>0&&<span style={{fontSize:8,fontWeight:700,color:'#2563EB',background:'rgba(37,99,235,.12)',border:'1px solid rgba(37,99,235,.25)',borderRadius:4,padding:'0 4px',marginRight:5,verticalAlign:'middle'}}>SUB</span>}
+                          {task.t}
+                        </span>
                         {task.c&&<span style={{fontFamily:'monospace',fontSize:8,color:'var(--txt3)',display:'block',marginTop:1}}>{task.c}</span>}
                       </div>
                     </div>
@@ -1499,7 +1523,7 @@ function InitiativeManager({tasks,setTasks,iStatus={},setIStatus,statusProduto=[
   );
 }
 
-function HistoricoView({tasks,setTasks,openEdit,iStatus,setIStatus,statusProduto,openBulkCreate,canEdit}){
+function HistoricoView({tasks,setTasks,openEdit,iStatus,setIStatus,statusProduto,openBulkCreate,canEdit,parents={},tipos={}}){
   const[sv,setSv]=useState('board');
   const done=tasks; // already filtered by AppMain (historicoTasks)
   return(
@@ -1515,7 +1539,7 @@ function HistoricoView({tasks,setTasks,openEdit,iStatus,setIStatus,statusProduto
           ))}
         </div>
       </div>
-      {sv==='board'?<BoardView tasks={done} setTasks={setTasks} openCreate={null} openEdit={openEdit} iStatus={iStatus} setIStatus={setIStatus} statusProduto={statusProduto} openBulkCreate={openBulkCreate}/>:<Timeline tasks={done} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus}/>}
+      {sv==='board'?<BoardView tasks={done} setTasks={setTasks} openCreate={null} openEdit={openEdit} iStatus={iStatus} setIStatus={setIStatus} statusProduto={statusProduto} openBulkCreate={openBulkCreate}/>:<Timeline tasks={done} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus} parents={parents} tipos={tipos}/>}
     </div>
   );
 }
@@ -2517,10 +2541,10 @@ function AppMain({currentUser,onLogout}){
         <div style={{flex:1,minWidth:0}}>
           {view==='dashboard'?<DashboardView tasks={tasks} iStatus={iStatus} riscos={riscos} deps={deps}/>
             :view==='board'?<BoardView tasks={boardTasks} setTasks={setTasks} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null} iStatus={iStatus} setIStatus={canEdit?setIStatus:null} openBulkCreate={canEdit?setBulkCreate:null} statusProduto={statusProduto} tipos={tipos} resps={resps} parents={parents} openCreateSub={canEdit?openCreateSub:null} allTasks={tasks} onAddSub={canEdit?addSub:null}/>
-            :view==='timeline'?<Timeline tasks={boardTasks} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus}/>
+            :view==='timeline'?<Timeline tasks={boardTasks} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus} parents={parents} tipos={tipos}/>
             :view==='backlog'?<BacklogView tasks={tasks} iStatus={iStatus} statusProduto={statusProduto} setIStatus={canEdit?setIStatus:null} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null} parents={parents} tipos={tipos} ordem={ordem} setOrdem={canEdit?setOrdem:null} openCreateSub={canEdit?openCreateSub:null} setTasks={canEdit?setTasks:null} onAddSub={canEdit?addSub:null} backlog={backlog} setBacklog={canEdit?setBacklog:null} onAddBacklogTask={canEdit?addBacklogTask:null} allG={allG}/>
             :view==='depriscos'?<DependenciasRiscosView tasks={tasks} deps={deps} setDeps={setDeps} riscos={riscos} setRiscos={setRiscos} allG={allG} canEdit={canEdit}/>
-            :<HistoricoView tasks={historicoTasks} setTasks={setTasks} openEdit={openEdit} iStatus={iStatus} setIStatus={canEdit?setIStatus:null} statusProduto={statusProduto} openBulkCreate={canEdit?setBulkCreate:null} canEdit={canEdit}/>}
+            :<HistoricoView tasks={historicoTasks} setTasks={setTasks} parents={parents} tipos={tipos} openEdit={openEdit} iStatus={iStatus} setIStatus={canEdit?setIStatus:null} statusProduto={statusProduto} openBulkCreate={canEdit?setBulkCreate:null} canEdit={canEdit}/>}
         </div>
       </div>
       <Drawer open={drawerOpen} onClose={()=>setDrawerOpen(false)} onSave={handleSave} grupos={allG} parents={parents} tasks={tasks} allResp={[...new Set([...resps,...(editing?respList(editing.r):[])])].sort((a,b)=>a.localeCompare(b,'pt-BR'))} editing={editing} tipos={tipos}/>
