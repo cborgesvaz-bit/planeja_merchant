@@ -41,6 +41,8 @@ select option{background:var(--bg1);color:var(--txt1)}
 .eb{opacity:0;transition:opacity .15s}.tr:hover .eb{opacity:1}
 .gc:hover{filter:brightness(.92)!important}
 .sb-item:hover{background:var(--sidebar-hover)!important}
+.drill{transition:background .12s,box-shadow .12s}
+.drill:hover{background:var(--bg2)!important;box-shadow:0 0 0 1px var(--accent)}
 td{word-break:normal;overflow-wrap:normal}
 </style></head>
 <body><div id="root"></div>
@@ -739,16 +741,16 @@ function Drawer({open,onClose,onSave,grupos,allResp,editing,tipos={},parents={},
   );
 }
 
-function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,openBulkCreate,statusProduto=[],tipos={},resps=[],parents={},openCreateSub,allTasks=null,onAddSub}){
+function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,openBulkCreate,statusProduto=[],tipos={},resps=[],parents={},openCreateSub,allTasks=null,onAddSub,initialFilter={}}){
   const[search,setSearch]=useState('');
-  const[fStatus,setFStatus]=useState([]);
-  const[fResp,setFResp]=useState([]);
+  const[fStatus,setFStatus]=useState(initialFilter.fStatus||[]);
+  const[fResp,setFResp]=useState(initialFilter.fResp||[]);
   const[sortCol,setSortCol]=useState(null);
   const[sortDir,setSortDir]=useState(null);
   const[expanded,setExpanded]=useState(new Set());
   const[groupBy,setGroupBy]=useState(true);
   const[showSubs,setShowSubs]=useState(false);   // subtarefas ficam no painel do pai, nao na lista
-  const[fGrupo,setFGrupo]=useState([]);
+  const[fGrupo,setFGrupo]=useState(initialFilter.fGrupo||[]);
   const[selected,setSelected]=useState(new Set());
   const[bulkModal,setBulkModal]=useState(false);
   const[collapsedGroups,setCollapsedGroups]=useState(new Set());
@@ -1085,7 +1087,10 @@ function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,ope
   );
 }
 
-function Timeline({tasks,setTasks,iStatus={},setIStatus,parents={},tipos={}}){
+// Fluxo de entrega exibido na Timeline (ordem das etapas)
+const FLOW=[{ph:'DEV',lb:'Dev'},{ph:'MR',lb:'MR'},{ph:'STG',lb:'STG'},{ph:'QA',lb:'Q.A'},{ph:'AGPRD',lb:'Ag. PRD'},{ph:'PRD',lb:'PRD'}];
+const FLOW_IDX={DEV:0,UNBLOCK:0,BLOCKED:0,CUSTOM:0,MR:1,STG:2,QA:3,AGPRD:4,PRD:5};
+function Timeline({tasks,setTasks,iStatus={},setIStatus,parents={},tipos={},deps=[],allTasks=null}){
   const[tooltip,setTooltip]=useState(null);
   const[cellEd,setCellEd]=useState(null);
   const[fGrupo,setFGrupo]=useState([]);
@@ -1156,6 +1161,26 @@ function Timeline({tasks,setTasks,iStatus={},setIStatus,parents={},tipos={}}){
     },150);
     return()=>clearTimeout(timer);
   },[mSpans]);
+
+  // Dependências por iniciativa: "espera" = depende de outra; "trava" = outra depende desta
+  const depsByGroup=useMemo(()=>{
+    const base=allTasks||tasks;
+    const aberta=g=>iStatus[g]!=='Concluido'&&base.some(t=>t.g===g&&!DONE.includes(t.s));
+    const m={};const add=(g,x)=>{(m[g]=m[g]||[]).push(x);};
+    deps.forEach(d=>{
+      if(!d.origem||!d.destino||d.origem===d.destino)return;
+      if(d.tipo==='Relacionada'){add(d.origem,{kind:'rel',other:d.destino,d});add(d.destino,{kind:'rel',other:d.origem,d});return;}
+      const[espera,trava]=d.tipo==='Aguarda'?[d.origem,d.destino]:[d.destino,d.origem];
+      const risk=aberta(trava);
+      add(espera,{kind:'espera',other:trava,risk,d});
+      add(trava,{kind:'trava',other:espera,risk,d});
+    });
+    return m;
+  },[deps,iStatus,tasks,allTasks]);
+  const scrollToGroup=g=>{
+    if(fGrupo.length&&!fGrupo.includes(g))setFGrupo([]);
+    setTimeout(()=>{const el=scrollRef.current&&[...scrollRef.current.querySelectorAll('[data-grupo]')].find(x=>x.getAttribute('data-grupo')===g);if(el)el.scrollIntoView({behavior:'smooth',block:'start'});},50);
+  };
 
   const toggleMonth=lb=>setCollapsed(prev=>{const n=new Set(prev);n.has(lb)?n.delete(lb):n.add(lb);return n;});
 
@@ -1244,7 +1269,15 @@ function Timeline({tasks,setTasks,iStatus={},setIStatus,parents={},tipos={}}){
                 <div style={{width:NW,flexShrink:0,position:'sticky',left:0,zIndex:10,padding:'0 8px 0 0',borderRight:'1px solid var(--border2)',background:'var(--bg1)',display:'flex',alignItems:'stretch',borderTop:`2px solid ${iStatus[grupo]?getISCfg(iStatus[grupo]).c:'var(--border2)'}`}}>
                   <div style={{width:4,background:iStatus[grupo]?getISCfg(iStatus[grupo]).c:'var(--border)',flexShrink:0}}/>
                   <div style={{flex:1,minWidth:0,padding:'5px 8px',display:'flex',flexDirection:'column',justifyContent:'center',gap:3}}>
-                    <span style={{fontSize:10,fontWeight:700,color:'var(--txt1)',lineHeight:1.4,wordBreak:'break-word',overflowWrap:'break-word'}}>{grupo}</span>
+                    <span data-grupo={grupo} style={{fontSize:10,fontWeight:700,color:'var(--txt1)',lineHeight:1.4,wordBreak:'break-word',overflowWrap:'break-word',scrollMarginTop:8}}>{grupo}</span>
+                    {depsByGroup[grupo]&&<div style={{display:'flex',flexWrap:'wrap',gap:4}}>
+                      {depsByGroup[grupo].map((x,i)=>{
+                        const col=x.kind==='rel'?DEP_TIPO.Relacionada.c:!x.risk?'#059669':x.kind==='espera'?'#DC2626':'#B45309';
+                        const txt=x.kind==='espera'?(x.risk?'⛔ aguarda ':'✓ liberada por '):x.kind==='trava'?(x.risk?'⏳ trava ':'✓ liberou '):'↔ ';
+                        const tip=(x.kind==='espera'?'Depende de "'+x.other+'"'+(x.risk?' (ainda em aberto)':' (já concluída)'):x.kind==='trava'?'"'+x.other+'" depende desta iniciativa':'Relacionada a "'+x.other+'"')+(x.d.obs?' — '+x.d.obs:'')+'. Clique para ir até ela.';
+                        return <button key={i} title={tip} onClick={()=>scrollToGroup(x.other)} style={{fontSize:9,fontWeight:600,padding:'1px 7px',borderRadius:99,border:'1px solid '+col+'55',background:col+'14',color:col,cursor:'pointer',maxWidth:'100%',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{txt}{x.other}</button>;
+                      })}
+                    </div>}
                     {setIStatus&&<select value={iStatus[grupo]||''} onChange={e=>setIStatus(prev=>({...prev,[grupo]:e.target.value}))} style={{alignSelf:'flex-start',fontSize:9,fontWeight:600,padding:'1px 7px 1px 4px',borderRadius:99,border:'1px solid '+(iStatus[grupo]?getISCfg(iStatus[grupo]).c+'55':'var(--border)'),background:iStatus[grupo]?getISCfg(iStatus[grupo]).bg:'transparent',color:iStatus[grupo]?getISCfg(iStatus[grupo]).c:'var(--txt3)',cursor:'pointer',outline:'none',appearance:'none',WebkitAppearance:'none'}}>
                       <option value="">+ status</option>
                       {(window._iscfg?Object.keys(window._iscfg):Object.keys(IS_CFG_BASE)).map(s=><option key={s} value={s}>{s}</option>)}
@@ -1269,7 +1302,35 @@ function Timeline({tasks,setTasks,iStatus={},setIStatus,parents={},tipos={}}){
                           {(task._depth||0)>0&&<span style={{fontSize:8,fontWeight:700,color:'#2563EB',background:'rgba(37,99,235,.12)',border:'1px solid rgba(37,99,235,.25)',borderRadius:4,padding:'0 4px',marginRight:5,verticalAlign:'middle'}}>SUB</span>}
                           {task.t}
                         </span>
-                        {task.c&&<span style={{fontFamily:'monospace',fontSize:8,color:'var(--txt3)',display:'block',marginTop:1}}>{task.c}</span>}
+                        {(()=>{
+                          // Em que pé está: etapa atual no fluxo + status + última atualização
+                          const keys=Object.keys(dmap).filter(k=>k<=todayK).sort();
+                          const lastK=keys[keys.length-1];
+                          const lastAct=lastK?dmap[lastK]:null;
+                          const done=DONE.includes(task.s);
+                          const alcancada=keys.reduce((mx,k)=>Math.max(mx,FLOW_IDX[dmap[k].ph]||0),keys.length?0:-1);
+                          const idx=done?FLOW.length:alcancada;
+                          const bloq=task.s==='Bloqueado'||(lastAct&&lastAct.ph==='BLOCKED');
+                          const dias=lastK?Math.floor((new Date(todayK)-new Date(lastK))/86400000):null;
+                          const scc=SC[task.s]||{c:'#6B7280',bg:'rgba(107,114,128,.1)'};
+                          return(
+                            <div style={{display:'flex',alignItems:'center',gap:6,marginTop:3,flexWrap:'wrap'}}>
+                              <span style={{fontSize:9,fontWeight:700,padding:'1px 6px',borderRadius:99,background:scc.bg,color:scc.c,whiteSpace:'nowrap'}}>{task.s}</span>
+                              <span title={'Etapas: '+FLOW.map(f=>f.lb).join(' → ')} style={{display:'inline-flex',alignItems:'center',gap:2}}>
+                                {FLOW.map((f,i)=>{
+                                  const passou=i<idx,atual=i===idx&&!done;
+                                  const cor=atual&&bloq?'#DC2626':PH[f.ph].col;
+                                  return <span key={f.ph} style={{fontSize:8,fontWeight:atual?800:600,padding:'0 4px',borderRadius:4,lineHeight:'13px',whiteSpace:'nowrap',
+                                    background:atual?cor:passou?PH[f.ph].col+'22':'transparent',
+                                    color:atual?'#fff':passou?PH[f.ph].col:'var(--txt3)',
+                                    border:'1px solid '+(atual||passou?cor+'66':'var(--border)'),opacity:passou||atual?1:.7}}>{passou?'✓ ':''}{f.lb}</span>;
+                                })}
+                              </span>
+                              {dias!==null&&!done&&<span style={{fontSize:8,color:dias>7?'#DC2626':'var(--txt3)',fontWeight:dias>7?700:400,whiteSpace:'nowrap'}}>{dias===0?'atualizado hoje':'há '+dias+'d'}</span>}
+                              {task.c&&<span style={{fontFamily:'monospace',fontSize:8,color:'var(--txt3)'}}>{task.c}</span>}
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                     {mSpans.map((ms,mi)=>{
@@ -1800,19 +1861,19 @@ function UserManager({currentUser,users,setUsers,onClose}){
   );
 }
 
-function KpiCard({label,value,sub,color}){
+function KpiCard({label,value,sub,color,onClick}){
   return(
-    <div style={{background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:12,padding:'16px 18px',flex:'1 1 180px',boxShadow:'0 1px 4px rgba(0,0,0,.05)'}}>
+    <div onClick={onClick} className={onClick?'drill':undefined} title={onClick?'Ver detalhes':undefined} style={{cursor:onClick?'pointer':'default',background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:12,padding:'16px 18px',flex:'1 1 180px',boxShadow:'0 1px 4px rgba(0,0,0,.05)'}}>
       <div style={{fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8,marginBottom:8}}>{label}</div>
       <div style={{fontSize:28,fontWeight:800,color:color||'var(--txt1)',lineHeight:1}}>{value}</div>
       {sub&&<div style={{fontSize:11,color:'var(--txt3)',marginTop:6}}>{sub}</div>}
     </div>
   );
 }
-function BarRow({label,n,total,color}){
+function BarRow({label,n,total,color,onClick}){
   const pct=total?Math.round(n/total*100):0;
   return(
-    <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:9}}>
+    <div onClick={onClick} className={onClick?'drill':undefined} title={onClick?'Ver '+label:undefined} style={{display:'flex',alignItems:'center',gap:10,marginBottom:5,padding:'2px 4px',margin:'0 -4px 5px',borderRadius:6,cursor:onClick?'pointer':'default'}}>
       <div style={{width:150,flexShrink:0,fontSize:11,color:'var(--txt2)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{label}</div>
       <div style={{flex:1,height:8,background:'var(--bg2)',borderRadius:99,overflow:'hidden'}}>
         <div style={{width:pct+'%',height:'100%',background:color||'var(--accent)',borderRadius:99}}/>
@@ -1821,7 +1882,7 @@ function BarRow({label,n,total,color}){
     </div>
   );
 }
-function DashboardView({tasks,iStatus={},riscos=[],deps=[]}){
+function DashboardView({tasks,iStatus={},riscos=[],deps=[],onDrill=()=>{}}){
   const total=tasks.length;
   const done=tasks.filter(t=>DONE.includes(t.s));
   const active=tasks.filter(t=>!DONE.includes(t.s));
@@ -1923,25 +1984,25 @@ function DashboardView({tasks,iStatus={},riscos=[],deps=[]}){
   return(
     <div style={{padding:'22px 24px 48px',maxWidth:1280,margin:'0 auto'}}>
       <div style={{display:'flex',gap:14,flexWrap:'wrap',marginBottom:24}}>
-        <KpiCard label="Tarefas ativas" value={active.length} sub={total+' no total'} color="var(--accent)"/>
-        <KpiCard label="Concluídas" value={done.length} sub="Finalizado + Entregue" color="#059669"/>
-        <KpiCard label="Bloqueadas" value={bloqueadas} sub="Requerem atenção" color="#DC2626"/>
+        <KpiCard label="Tarefas ativas" value={active.length} sub={total+' no total'} color="var(--accent)" onClick={()=>onDrill('board')}/>
+        <KpiCard label="Concluídas" value={done.length} sub="Finalizado + Entregue" color="#059669" onClick={()=>onDrill('historico')}/>
+        <KpiCard label="Bloqueadas" value={bloqueadas} sub="Requerem atenção" color="#DC2626" onClick={()=>onDrill('board',{fStatus:['Bloqueado']})}/>
         <KpiCard label="Entregas no mês" value={entregasMes} sub="Deploy em PRD" color="#0369A1"/>
-        <KpiCard label="Riscos ativos" value={riscosAtivos.length} sub={riscosAltos.length+' de severidade alta'} color={riscosAltos.length?'#DC2626':'#6B7280'}/>
-        <KpiCard label="Dependências mapeadas" value={deps.length} color="#7C3AED"/>
+        <KpiCard label="Riscos ativos" value={riscosAtivos.length} sub={riscosAltos.length+' de severidade alta'} color={riscosAltos.length?'#DC2626':'#6B7280'} onClick={()=>onDrill('depriscos')}/>
+        <KpiCard label="Dependências mapeadas" value={deps.length} color="#7C3AED" onClick={()=>onDrill('depriscos')}/>
       </div>
 
       <div style={{display:'flex',gap:20,flexWrap:'wrap'}}>
         <div style={{flex:'1 1 380px',background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:12,padding:'18px 20px'}}>
           <div style={{fontSize:12,fontWeight:700,color:'var(--txt1)',marginBottom:14}}>Tarefas por status</div>
           {Object.entries(statusCounts).sort((a,b)=>b[1]-a[1]).map(([s,n])=>(
-            <BarRow key={s} label={s} n={n} total={total} color={(SC[s]&&SC[s].c)||'#9CA3AF'}/>
+            <BarRow key={s} label={s} n={n} total={total} color={(SC[s]&&SC[s].c)||'#9CA3AF'} onClick={()=>onDrill(DONE.includes(s)?'historico':'board',{fStatus:[s]})}/>
           ))}
         </div>
         <div style={{flex:'1 1 380px',background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:12,padding:'18px 20px'}}>
           <div style={{fontSize:12,fontWeight:700,color:'var(--txt1)',marginBottom:14}}>Iniciativas por status</div>
           {Object.entries(initStatusCounts).sort((a,b)=>b[1]-a[1]).map(([s,n])=>(
-            <BarRow key={s} label={s} n={n} total={Object.values(initStatusCounts).reduce((a,b)=>a+b,0)} color={getISCfg(s).c}/>
+            <BarRow key={s} label={s} n={n} total={Object.values(initStatusCounts).reduce((a,b)=>a+b,0)} color={getISCfg(s).c} onClick={()=>onDrill(initView(s),{fGrupo:[...new Set(tasks.map(t=>t.g))].filter(g=>(iStatus[g]||'Backlog')===s)})}/>
           ))}
         </div>
         <div style={{flex:'1 1 380px',background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:12,padding:'18px 20px'}}>
@@ -1949,7 +2010,7 @@ function DashboardView({tasks,iStatus={},riscos=[],deps=[]}){
           {Object.keys(respCounts).length===0
             ?<div style={{fontSize:11,color:'var(--txt3)'}}>Nenhuma tarefa atribuída.</div>
             :Object.entries(respCounts).sort((a,b)=>b[1]-a[1]).map(([r,n])=>(
-              <BarRow key={r} label={r} n={n} total={active.length} color="var(--cyan)"/>
+              <BarRow key={r} label={r} n={n} total={active.length} color="var(--cyan)" onClick={()=>onDrill('board',{fResp:[r]})}/>
             ))}
         </div>
       </div>
@@ -2264,6 +2325,108 @@ function TeamManager({teams,setTeams,teamId,setTeamId,onClose}){
   );
 }
 
+/* ── Meu trabalho ─────────────────────────────────────── */
+const normNome=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().trim();
+const IDLE_DAYS=7;
+function MeuTrabalhoView({tasks,currentUser,deps=[],iStatus={},openEdit}){
+  const allResp=useMemo(()=>allRespOf(tasks),[tasks]);
+  const guess=useMemo(()=>{
+    const full=normNome(currentUser&&currentUser.name),first=full.split(' ')[0];
+    return allResp.find(r=>normNome(r)===full)||allResp.find(r=>normNome(r).split(' ')[0]===first)||'';
+  },[allResp,currentUser]);
+  const[person,setPerson]=useState(()=>{try{return localStorage.getItem('pm_meu_resp')||'';}catch(e){return'';}});
+  const pessoa=allResp.includes(person)?person:guess;
+  const escolher=v=>{setPerson(v);try{localStorage.setItem('pm_meu_resp',v);}catch(e){}};
+
+  const data=useMemo(()=>{
+    const mine=tasks.filter(t=>pessoa&&hasResp(t,pessoa)&&!DONE.includes(t.s));
+    const now=new Date();now.setHours(0,0,0,0);
+    const ws=weekStart(now),we=new Date(ws.getTime()+7*86400000);
+    const idleLimit=new Date(now.getTime()-IDLE_DAYS*86400000);
+    const atencao=[],semana=[],andamento=[],deploy=[],fazer=[];
+    mine.forEach(t=>{
+      let last=null;const wk=[];
+      String(t.a||'').split('\n').forEach(l=>{const d=lineDate(l);if(d&&(!last||d>last))last=d;});
+      [...String(t.plan||'').split('\n'),...String(t.a||'').split('\n')].forEach(l=>{const d=lineDate(l);if(d&&d>=ws&&d<we)wk.push(l);});
+      const idle=t.s==='Em andamento'&&(!last||last<idleLimit);
+      if(t.s==='Bloqueado'||t.s==='Paralisado'||idle)atencao.push({t,why:idle?(last?'sem atualização há '+Math.floor((now-last)/86400000)+' dias':'sem nenhum registro'):''});
+      if(wk.length)semana.push({t,why:wk[0].replace(/^\d{1,2}\/\d{1,2}(\/\d{2,4})?\s*-\s*/,'')});
+      if(t.s==='Em andamento'){if(!idle)andamento.push({t});}
+      else if(/deploy/i.test(t.s))deploy.push({t});
+      else if(t.s==='Nao Iniciado'||t.s==='Pendente')fazer.push({t});
+    });
+    const byNum=(a,b)=>tn(a.t.t)-tn(b.t.t);
+    [atencao,semana,andamento,deploy,fazer].forEach(l=>l.sort(byNum));
+    // Iniciativas da pessoa que dependem de outra iniciativa ainda aberta
+    const myGroups=new Set(mine.map(t=>t.g));
+    const aberta=g=>iStatus[g]!=='Concluido'&&tasks.some(t=>t.g===g&&!DONE.includes(t.s));
+    const esperando=[];
+    deps.forEach(d=>{
+      let meu=null,outra=null;
+      if(d.tipo==='Bloqueia'&&myGroups.has(d.destino)){meu=d.destino;outra=d.origem;}
+      else if(d.tipo==='Aguarda'&&myGroups.has(d.origem)){meu=d.origem;outra=d.destino;}
+      if(meu&&outra&&outra!==meu&&aberta(outra))esperando.push({id:d.id,meu,outra,obs:d.obs});
+    });
+    return{mine,atencao,semana,andamento,deploy,fazer,esperando};
+  },[tasks,pessoa,deps,iStatus]);
+
+  const Row=({t,why})=>(
+    <div className={openEdit?'drill':undefined} onClick={e=>openEdit&&openEdit(t,e)} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 12px',borderRadius:8,cursor:openEdit?'pointer':'default'}}>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:12,fontWeight:600,color:'var(--txt1)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.t}</div>
+        <div style={{fontSize:10,color:'var(--txt3)',marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.g}{t.c?' · '+t.c:''}{why?' · '+why:''}</div>
+      </div>
+      <Badge s={t.s}/>
+    </div>
+  );
+  const Section=({title,items,color,empty})=>(
+    <div style={{flex:'1 1 420px',background:'var(--bg1)',border:'1px solid var(--border)',borderTop:'3px solid '+color,borderRadius:12,padding:'14px 8px 8px'}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'0 12px 8px'}}>
+        <span style={{fontSize:12,fontWeight:700,color:'var(--txt1)'}}>{title}</span>
+        <span style={{fontSize:11,fontWeight:700,color}}>{items.length}</span>
+      </div>
+      {items.length===0?<div style={{fontSize:11,color:'var(--txt3)',padding:'4px 12px 10px'}}>{empty}</div>:items.map(i=><Row key={i.t.id} {...i}/>)}
+    </div>
+  );
+
+  return(
+    <div style={{padding:'22px 24px 48px',maxWidth:1280,margin:'0 auto'}}>
+      <div style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap',marginBottom:20}}>
+        <div style={{flex:1,minWidth:220}}>
+          <div style={{fontSize:18,fontWeight:800,color:'var(--txt1)'}}>{pessoa?'Olá, '+pessoa.split(' ')[0]:'Meu trabalho'}</div>
+          <div style={{fontSize:12,color:'var(--txt3)',marginTop:2}}>{pessoa?data.mine.length+' tarefa'+(data.mine.length!==1?'s':'')+' em aberto · '+data.atencao.length+' precisando de atenção':'Escolha o responsável para ver as tarefas'}</div>
+        </div>
+        <label style={{fontSize:11,color:'var(--txt3)',display:'flex',alignItems:'center',gap:6}}>Responsável
+          <select value={pessoa} onChange={e=>escolher(e.target.value)} style={{fontSize:12,padding:'6px 10px',borderRadius:8,border:'1px solid var(--border)',background:'var(--bg1)',color:'var(--txt1)',outline:'none'}}>
+            <option value="">— selecione —</option>
+            {allResp.map(r=><option key={r} value={r}>{r}</option>)}
+          </select>
+        </label>
+      </div>
+      {pessoa&&(
+        <div style={{display:'flex',gap:16,flexWrap:'wrap'}}>
+          <Section title="⚠️ Precisa de atenção" items={data.atencao} color="#DC2626" empty={'Nada bloqueado, paralisado ou parado há mais de '+IDLE_DAYS+' dias.'}/>
+          <Section title="📅 Nesta semana" items={data.semana} color="#0369A1" empty="Nenhum registro ou plano para esta semana."/>
+          {data.esperando.length>0&&(
+            <div style={{flex:'1 1 420px',background:'var(--bg1)',border:'1px solid var(--border)',borderTop:'3px solid #B45309',borderRadius:12,padding:'14px 20px'}}>
+              <div style={{fontSize:12,fontWeight:700,color:'var(--txt1)',marginBottom:10}}>🔗 Aguardando outras iniciativas</div>
+              {data.esperando.map(e=>(
+                <div key={e.id+e.meu} style={{fontSize:12,color:'var(--txt2)',padding:'6px 0',borderBottom:'1px solid var(--border)'}}>
+                  <b style={{color:'var(--txt1)'}}>{e.meu}</b> depende de <b style={{color:'#B45309'}}>{e.outra}</b>
+                  {e.obs&&<div style={{fontSize:10,color:'var(--txt3)',marginTop:2}}>{e.obs}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+          <Section title="🚧 Em andamento" items={data.andamento} color="#0891B2" empty="Nenhuma tarefa em andamento."/>
+          <Section title="🚀 Aguardando deploy" items={data.deploy} color="#B45309" empty="Nada aguardando deploy."/>
+          <Section title="🗒️ A fazer" items={data.fazer} color="#6B7280" empty="Fila vazia."/>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AppMain({currentUser,onLogout}){
   const isAdmin=currentUser.role==='admin';
   const[teams,setTeams]=useState([]);
@@ -2325,6 +2488,8 @@ function AppMain({currentUser,onLogout}){
   const allocIds=n=>{const base=Math.max(lastIdRef.current+1,Date.now());lastIdRef.current=base+n-1;setNextId(lastIdRef.current+1);return base;};
   const[loaded,setLoaded]=useState(false);
   const[view,setView]=useState('dashboard');
+  const[drill,setDrill]=useState(null); // filtro inicial vindo do Dashboard
+  const goView=(v,filter=null)=>{setDrill(filter?{...filter,key:Date.now()}:null);setView(v);};
   const[drawerOpen,setDrawerOpen]=useState(false);
   const[editing,setEditing]=useState(null);
   const[toast,setToast]=useState(null);
@@ -2499,6 +2664,7 @@ function AppMain({currentUser,onLogout}){
   };
 
   const VIEWS=[
+    ['meu','Meu trabalho','🙋'],
     ['dashboard','Dashboard','📊'],
     ['board','Board','🗂️'],
     ['timeline','Timeline','📅'],
@@ -2529,7 +2695,7 @@ function AppMain({currentUser,onLogout}){
         </div>
         <div style={{padding:'4px 12px',display:'flex',flexDirection:'column',gap:2,flex:1}}>
           {VIEWS.map(([id,lbl,ico])=>(
-            <button key={id} className="sb-item" onClick={()=>setView(id)} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 12px',borderRadius:8,border:'none',background:view===id?'rgba(255,255,255,.1)':'transparent',color:view===id?'var(--sidebar-txt-active)':'var(--sidebar-txt)',fontSize:13,fontWeight:view===id?700:500,cursor:'pointer',textAlign:'left',transition:'background .12s'}}>
+            <button key={id} className="sb-item" onClick={()=>goView(id)} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 12px',borderRadius:8,border:'none',background:view===id?'rgba(255,255,255,.1)':'transparent',color:view===id?'var(--sidebar-txt-active)':'var(--sidebar-txt)',fontSize:13,fontWeight:view===id?700:500,cursor:'pointer',textAlign:'left',transition:'background .12s'}}>
               <span style={{fontSize:15,width:18,textAlign:'center',flexShrink:0}}>{ico}</span>
               <span style={{whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{lbl}</span>
             </button>
@@ -2604,9 +2770,10 @@ function AppMain({currentUser,onLogout}){
           </div>
         </div>
         <div style={{flex:1,minWidth:0}}>
-          {view==='dashboard'?<DashboardView tasks={tasks} iStatus={iStatus} riscos={riscos} deps={deps}/>
-            :view==='board'?<BoardView tasks={boardTasks} setTasks={setTasks} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null} iStatus={iStatus} setIStatus={canEdit?setIStatus:null} openBulkCreate={canEdit?setBulkCreate:null} statusProduto={statusProduto} tipos={tipos} resps={resps} parents={parents} openCreateSub={canEdit?openCreateSub:null} allTasks={tasks} onAddSub={canEdit?addSub:null}/>
-            :view==='timeline'?<Timeline tasks={boardTasks} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus} parents={parents} tipos={tipos}/>
+          {view==='meu'?<MeuTrabalhoView tasks={tasks} currentUser={currentUser} deps={deps} iStatus={iStatus} openEdit={canEdit?openEdit:null}/>
+            :view==='dashboard'?<DashboardView tasks={tasks} iStatus={iStatus} riscos={riscos} deps={deps} onDrill={goView}/>
+            :view==='board'?<BoardView key={drill?drill.key:'board'} initialFilter={drill||{}} tasks={boardTasks} setTasks={setTasks} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null} iStatus={iStatus} setIStatus={canEdit?setIStatus:null} openBulkCreate={canEdit?setBulkCreate:null} statusProduto={statusProduto} tipos={tipos} resps={resps} parents={parents} openCreateSub={canEdit?openCreateSub:null} allTasks={tasks} onAddSub={canEdit?addSub:null}/>
+            :view==='timeline'?<Timeline tasks={boardTasks} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus} parents={parents} tipos={tipos} deps={deps} allTasks={tasks}/>
             :view==='backlog'?<BacklogView tasks={tasks} iStatus={iStatus} statusProduto={statusProduto} setIStatus={canEdit?setIStatus:null} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null} parents={parents} tipos={tipos} ordem={ordem} setOrdem={canEdit?setOrdem:null} openCreateSub={canEdit?openCreateSub:null} setTasks={canEdit?setTasks:null} onAddSub={canEdit?addSub:null} backlog={backlog} setBacklog={canEdit?setBacklog:null} onAddBacklogTask={canEdit?addBacklogTask:null} allG={allG}/>
             :view==='depriscos'?<DependenciasRiscosView tasks={tasks} deps={deps} setDeps={setDeps} riscos={riscos} setRiscos={setRiscos} allG={allG} canEdit={canEdit}/>
             :<HistoricoView tasks={historicoTasks} allTasks={tasks} setTasks={setTasks} parents={parents} tipos={tipos} openEdit={openEdit} iStatus={iStatus} setIStatus={canEdit?setIStatus:null} statusProduto={statusProduto} openBulkCreate={canEdit?setBulkCreate:null} canEdit={canEdit}/>}
