@@ -321,7 +321,15 @@ const T0=[
  {id:50,g:"Smart Routing",t:"22.1 - Refinamento Tecnico",c:"",v:"",s:"Nao Iniciado",r:"",mr:"",a:""},
 ];
 
-function parseDate(s){if(!s||!s.includes('/'))return null;const[d,m]=s.split('/').map(Number);if(!d||!m)return null;return new Date(2026,m-1,d);}
+// Datas do acompanhamento/plano: "DD/MM/AAAA" (novo) ou "DD/MM" (legado).
+// Registros sem ano foram todos criados quando o app assumia 2026 — continuam sendo lidos assim.
+const LEGACY_YEAR=2026;
+function parseDate(s){if(!s||!s.includes('/'))return null;const[d,m,y]=s.split('/').map(Number);if(!d||!m)return null;return new Date(y>=1000?y:(y>0?2000+y:LEGACY_YEAR),m-1,d);}
+function lineDate(line){const m=String(line||'').match(/^(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)/);return m?parseDate(m[1]):null;}
+function todayStr(){return new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'});}
+function fmtDMY(d){return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear();}
+// entrada nova digitada so com DD/MM recebe o ano atual
+function withYear(line){return String(line).replace(/^(\d{1,2}\/\d{1,2})(?![\d\/])/,'$1/'+new Date().getFullYear());}
 function weekStart(d){const x=new Date(d);const day=x.getDay();x.setDate(x.getDate()-day+(day===0?-6:1));x.setHours(0,0,0,0);return x;}
 function fmtDate(d){return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});}
 function IGNORE_RE(){return /card\s+criad[oa]/i;}
@@ -331,7 +339,7 @@ function isIgnoredLine(text){return IGNORE_RE().test(text);}
 function isFinalizadoLine(text){return /(card\s+)?finalizad[oa]/i.test(text);}
 function hasDeployPRD(task){
   const scan=txt=>(txt||'').split('\n').some(l=>{
-    if(!/^(\d{1,2}\/\d{1,2})/.test(l))return false;
+    if(!/^(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)/.test(l))return false;
     if(isIgnoredLine(l)||isFinalizadoLine(l))return false;
     return detectPhase(l)==='PRD';
   });
@@ -362,12 +370,12 @@ function getTaskDayMap(task){
   const map={};
   const skipFinal=hasDeployPRD(task);
   // Read acompanhamento (Board) — read-only in timeline
-  if(task.a){task.a.split('\n').forEach(line=>{const m=line.match(/^(\d{1,2}\/\d{1,2})/);if(!m)return;if(isIgnoredLine(line))return;if(skipFinal&&isFinalizadoLine(line))return;const date=parseDate(m[1]);if(!date)return;const dk=date.toISOString().slice(0,10);const ph=detectPhase(line);const cl=ph==='CUSTOM'?extractCustomLabel(line):null;const ex=map[dk];if(!ex||PH[ph].pr>PH[ex.ph].pr){map[dk]={ph,cl,lines:[line],src:'board'};}else if(ex.ph===ph){ex.lines.push(line);}});}
+  if(task.a){task.a.split('\n').forEach(line=>{const m=line.match(/^(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)/);if(!m)return;if(isIgnoredLine(line))return;if(skipFinal&&isFinalizadoLine(line))return;const date=parseDate(m[1]);if(!date)return;const dk=date.toISOString().slice(0,10);const ph=detectPhase(line);const cl=ph==='CUSTOM'?extractCustomLabel(line):null;const ex=map[dk];if(!ex||PH[ph].pr>PH[ex.ph].pr){map[dk]={ph,cl,lines:[line],src:'board'};}else if(ex.ph===ph){ex.lines.push(line);}});}
   // Read plan (Timeline-only) — overrides board for same day
-  if(task.plan){task.plan.split('\n').forEach(line=>{const m=line.match(/^(\d{1,2}\/\d{1,2})/);if(!m)return;if(isIgnoredLine(line))return;if(skipFinal&&isFinalizadoLine(line))return;const date=parseDate(m[1]);if(!date)return;const dk=date.toISOString().slice(0,10);const ph=detectPhase(line);const cl=ph==='CUSTOM'?extractCustomLabel(line):null;map[dk]={ph,cl,lines:[line],src:'plan'};});}
+  if(task.plan){task.plan.split('\n').forEach(line=>{const m=line.match(/^(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)/);if(!m)return;if(isIgnoredLine(line))return;if(skipFinal&&isFinalizadoLine(line))return;const date=parseDate(m[1]);if(!date)return;const dk=date.toISOString().slice(0,10);const ph=detectPhase(line);const cl=ph==='CUSTOM'?extractCustomLabel(line):null;map[dk]={ph,cl,lines:[line],src:'plan'};});}
   return map;
 }
-function sortLog(lines){return[...lines].sort((a,b)=>{const p=s=>{const m=s.match(/^(\d{1,2})\/(\d{1,2})/);return m?(+m[2])*100+(+m[1]):0;};return p(b)-p(a);});}
+function sortLog(lines){return[...lines].sort((a,b)=>{const p=s=>{const d=lineDate(s);return d?d.getTime():0;};return p(b)-p(a);});}
 
 function exportXLSX(tasks,parents={},tipos={}){
   if(!window.XLSX){alert('XLSX nao disponivel');return;}
@@ -402,7 +410,7 @@ function exportXLSX(tasks,parents={},tipos={}){
   tasks.forEach(t=>{
     if(!t.a)return;
     t.a.split('\n').filter(Boolean).forEach(line=>{
-      const m=line.match(/^(\d{1,2}\/\d{1,2})/);
+      const m=line.match(/^(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)/);
       if(!m)return;
       const dateStr=m[1];
       const desc=line.slice(dateStr.length).replace(/^\s*[-\u2014]\s*/,'');
@@ -422,7 +430,7 @@ function exportXLSX(tasks,parents={},tipos={}){
   });
   // Ordena por data (MM*100+DD) depois por iniciativa
   timeRows.sort((a,b)=>{
-    const toN=s=>{const p=s.match(/^(\d{1,2})\/(\d{1,2})/);return p?(+p[2])*100+(+p[1]):0;};
+    const toN=s=>{const d=lineDate(s);return d?d.getTime():0;};
     return toN(a.Data)-toN(b.Data)||a.Iniciativa.localeCompare(b.Iniciativa,'pt-BR');
   });
   const wsTime=window.XLSX.utils.json_to_sheet(timeRows);
@@ -498,7 +506,7 @@ function Drawer({open,onClose,onSave,grupos,allResp,editing,tipos={},parents={},
   const[errs,setErrs]=useState({});
   const[tab,setTab]=useState('d');
   const ref=useRef(null);
-  const today=()=>new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+  const today=todayStr;
 
   useEffect(()=>{
     if(!open)return;
@@ -548,7 +556,7 @@ function Drawer({open,onClose,onSave,grupos,allResp,editing,tipos={},parents={},
 
   const save=()=>{
     const e=validate();if(Object.keys(e).length){setErrs(e);return;}
-    const withDate=l=>/^\d{1,2}\/\d{1,2}/.test(l)?l:`${today()} - ${l}`;
+    const withDate=l=>/^\d{1,2}\/\d{1,2}/.test(l)?withYear(l):`${today()} - ${l}`;
     let gFinal=gmode==='new'?form.ng.trim():form.g;
     const pai=form.parent?tasks.find(t=>String(t.id)===String(form.parent)):null;
     if(pai)gFinal=pai.g;                    // subtarefa sempre na iniciativa do pai
@@ -938,12 +946,14 @@ function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,ope
             {groupBy&&(()=>{
               const isEd=editGrupo&&editGrupo.orig===grupo;
               const isCD=confDel&&confDel.type==='g'&&confDel.name===grupo;
-              const cnt=tasks.filter(t=>t.g===grupo).length;
+              // a exclusao remove TODAS as tarefas da iniciativa (inclusive concluidas/ocultas nesta aba)
+              const cnt=(allTasks||tasks).filter(t=>t.g===grupo).length;
+              const ocultas=cnt-tasks.filter(t=>t.g===grupo).length;
               return(
                 <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:8,paddingBottom:6,borderBottom:'1px solid var(--border)',flexWrap:'nowrap',overflow:'hidden'}}>
                   {isCD
                     ?<div style={{display:'flex',alignItems:'center',gap:7,padding:'4px 12px',background:'rgba(220,38,38,.06)',border:'1px solid rgba(220,38,38,.2)',borderRadius:8}}>
-                       <span style={{fontSize:12,color:'#DC2626'}}>Excluir {cnt} tarefa{cnt!==1?'s':''}?</span>
+                       <span style={{fontSize:12,color:'#DC2626'}}>Excluir a iniciativa e {cnt} tarefa{cnt!==1?'s':''}{ocultas>0?` (incluindo ${ocultas} fora desta aba)`:''}?</span>
                        <button onClick={()=>deleteGroup(grupo)} style={{padding:'3px 10px',borderRadius:6,background:'#DC2626',border:'none',color:'#fff',fontSize:11,fontWeight:700,cursor:'pointer'}}>Sim</button>
                        <button onClick={()=>setConfDel(null)} style={{padding:'3px 10px',borderRadius:6,background:'transparent',border:'1px solid var(--border)',color:'var(--txt2)',fontSize:11,cursor:'pointer'}}>Nao</button>
                      </div>
@@ -1087,13 +1097,12 @@ function Timeline({tasks,setTasks,iStatus={},setIStatus,parents={},tipos={}}){
 
   const{allDays,allWeeks,mSpans,grouped}=useMemo(()=>{
     const now=new Date();
-    // Always show full 2026: Jan to Dec, plus ensure today is always visible
-    let minD=new Date(2026,0,1);
-    let maxD=new Date(2026,11,31); // Dec 31, 2026
-    // Expand if tasks have entries beyond 2026
-    tasks.forEach(t=>{if(!t.a)return;t.a.split('\n').forEach(line=>{const m=line.match(/^(\d{1,2}\/\d{1,2})/);if(!m)return;const d=parseDate(m[1]);if(!d)return;if(d<minD)minD=d;if(d>maxD)maxD=d;});});
-    tasks.forEach(t=>{if(!t.plan)return;t.plan.split('\n').forEach(line=>{const m=line.match(/^(\d{1,2}\/\d{1,2})/);if(!m)return;const d=parseDate(m[1]);if(!d)return;if(d<minD)minD=d;if(d>maxD)maxD=d;});});
-    tasks.forEach(t=>{if(!t.plan)return;t.plan.split('\n').forEach(line=>{const m=line.match(/^(\d{1,2}\/\d{1,2})/);if(!m)return;const d=parseDate(m[1]);if(!d)return;if(d<minD)minD=d;if(d>maxD)maxD=d;});});
+    // Mostra o ano corrente inteiro e expande se houver registros fora dele
+    let minD=new Date(now.getFullYear(),0,1);
+    let maxD=new Date(now.getFullYear(),11,31);
+    tasks.forEach(t=>{if(!t.a)return;t.a.split('\n').forEach(line=>{const m=line.match(/^(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)/);if(!m)return;const d=parseDate(m[1]);if(!d)return;if(d<minD)minD=d;if(d>maxD)maxD=d;});});
+    tasks.forEach(t=>{if(!t.plan)return;t.plan.split('\n').forEach(line=>{const m=line.match(/^(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)/);if(!m)return;const d=parseDate(m[1]);if(!d)return;if(d<minD)minD=d;if(d>maxD)maxD=d;});});
+    tasks.forEach(t=>{if(!t.plan)return;t.plan.split('\n').forEach(line=>{const m=line.match(/^(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)/);if(!m)return;const d=parseDate(m[1]);if(!d)return;if(d<minD)minD=d;if(d>maxD)maxD=d;});});
     // Include today
     if(now<minD)minD=new Date(now.getFullYear(),now.getMonth(),1);
     const pStart=weekStart(new Date(minD.getTime()-7*86400000));
@@ -1161,7 +1170,8 @@ function Timeline({tasks,setTasks,iStatus={},setIStatus,parents={},tipos={}}){
     setTasks(prev=>prev.map(t=>{
       if(t.id!==taskId)return t;
       // Write to task.plan — never touches task.a (Board acompanhamento)
-      let lines=(t.plan||'').split('\n').filter(l=>{const m=l.match(/^(\d{1,2}\/\d{1,2})/);return !(m&&days.includes(m[1]));});
+      const keys=new Set(days.map(ds=>{const d=parseDate(ds);return d?d.getTime():ds;}));
+      let lines=(t.plan||'').split('\n').filter(l=>{const d=lineDate(l);return !(d&&keys.has(d.getTime()));});
       const newLines=days.map(ds=>ds+' - '+note);
       return{...t,plan:[...newLines,...lines].filter(Boolean).join('\n')};
     }));
@@ -1169,10 +1179,10 @@ function Timeline({tasks,setTasks,iStatus={},setIStatus,parents={},tipos={}}){
   const delCellDay=(taskId,dk,src)=>{
     // NEVER modify task.a (Board acompanhamento) from the timeline
     if(src==='board')return;
-    const[,mmS,ddS]=dk.split('-');const ds=ddS+'/'+mmS;
+    const[yyS,mmS,ddS]=dk.split('-');const alvo=new Date(+yyS,+mmS-1,+ddS).getTime();
     setTasks(prev=>prev.map(t=>{
       if(t.id!==taskId)return t;
-      const lines=(t.plan||'').split('\n').filter(l=>{const m=l.match(/^(\d{1,2}\/\d{1,2})/);return !(m&&m[1]===ds);});
+      const lines=(t.plan||'').split('\n').filter(l=>{const d=lineDate(l);return !(d&&d.getTime()===alvo);});
       return{...t,plan:lines.join('\n')};
     }));
   };
@@ -1277,7 +1287,7 @@ function Timeline({tasks,setTasks,iStatus={},setIStatus,parents={},tipos={}}){
                             <div key={dk} ref={isT?todayColRef:null} className={act?'gc':''} style={{width:DW,flexShrink:0,position:'relative',background:act?ph.sl:isT?'rgba(34,211,238,.1)':'transparent',borderLeft:isM?'1px solid var(--border2)':'1px solid var(--border)',cursor:'pointer'}}
                               onMouseEnter={e=>{if(act&&!cellEd)setTooltip({task,dk,act,x:e.clientX,y:e.clientY});}}
                               onMouseLeave={()=>{if(!cellEd)setTooltip(null);}}
-                              onClick={e=>{e.stopPropagation();setTooltip(null);const[,mmS,ddS]=dk.split('-');setCellEd({task,dk,act:act||null,x:e.clientX,y:e.clientY,df:ddS+'/'+mmS});}}>
+                              onClick={e=>{e.stopPropagation();setTooltip(null);const[yyS,mmS,ddS]=dk.split('-');setCellEd({task,dk,act:act||null,x:e.clientX,y:e.clientY,df:ddS+'/'+mmS+'/'+yyS});}}>
                               {act&&<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden',pointerEvents:'none'}}><span style={{fontSize:7,fontWeight:700,color:'rgba(0,0,0,.75)',whiteSpace:'nowrap',maxWidth:DW-2,overflow:'hidden',textAlign:'center'}}>{lbl}</span></div>}
                               {isT&&!act&&<div style={{position:'absolute',top:0,bottom:0,left:0,width:1,background:'rgba(34,211,238,.35)'}}/>}
                             </div>
@@ -1318,16 +1328,16 @@ function CellEditor({ced,onSave,onDelete,onClose}){
   const[dt,setDt]=useState('');
   const[err,setErr]=useState('');
   const ref=useRef(null);
-  const today=()=>new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+  const today=todayStr;
 
   useEffect(()=>{setTimeout(()=>ref.current&&ref.current.focus(),60);},[]);
 
   const wdBetween=(from,to)=>{
-    const p=s=>{const[d,m]=s.split('/').map(Number);return new Date(2026,m-1,d);};
-    const s=p(from),e=p(to||from);
+    const p=(v,ano)=>{const[d,m,y]=v.split('/').map(Number);if(!d||!m)return new Date(NaN);return new Date(y>=1000?y:(y>0?2000+y:ano),m-1,d);};
+    const s=p(from,new Date().getFullYear()),e=p(to||from,s.getFullYear());
     if(isNaN(s.getTime())||isNaN(e.getTime())||e<s)return null;
     const days=[];const cur=new Date(s);
-    while(cur<=e){const dow=cur.getDay();if(dow>=1&&dow<=5){const dd=String(cur.getDate()).padStart(2,'0'),mm=String(cur.getMonth()+1).padStart(2,'0');days.push(dd+'/'+mm);}cur.setDate(cur.getDate()+1);}
+    while(cur<=e){const dow=cur.getDay();if(dow>=1&&dow<=5){days.push(fmtDMY(cur));}cur.setDate(cur.getDate()+1);}
     return days;
   };
 
@@ -1431,7 +1441,7 @@ function InitiativeManager({tasks,setTasks,iStatus={},setIStatus,statusProduto=[
   const createG=()=>{
     const n=newN.trim();if(!n)return;
     if(grupos.some(g=>g.name===n))return;
-    setTasks(prev=>[...prev,{id:Date.now(),g:n,t:'Nova tarefa - edite ou exclua',c:'',v:'',s:'Nao Iniciado',r:'',mr:'',a:new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})+' - Card criado'}]);
+    setTasks(prev=>[...prev,{id:Date.now(),g:n,t:'Nova tarefa - edite ou exclua',c:'',v:'',s:'Nao Iniciado',r:'',mr:'',a:todayStr()+' - Card criado'}]);
     setStatus(n,newS);
     setNewN('');
   };
@@ -1543,7 +1553,7 @@ function InitiativeManager({tasks,setTasks,iStatus={},setIStatus,statusProduto=[
   );
 }
 
-function HistoricoView({tasks,setTasks,openEdit,iStatus,setIStatus,statusProduto,openBulkCreate,canEdit,parents={},tipos={}}){
+function HistoricoView({tasks,setTasks,openEdit,iStatus,setIStatus,statusProduto,openBulkCreate,canEdit,parents={},tipos={},allTasks=null}){
   const[sv,setSv]=useState('board');
   const done=tasks; // already filtered by AppMain (historicoTasks)
   return(
@@ -1559,7 +1569,7 @@ function HistoricoView({tasks,setTasks,openEdit,iStatus,setIStatus,statusProduto
           ))}
         </div>
       </div>
-      {sv==='board'?<BoardView tasks={done} setTasks={setTasks} openCreate={null} openEdit={openEdit} iStatus={iStatus} setIStatus={setIStatus} statusProduto={statusProduto} openBulkCreate={openBulkCreate}/>:<Timeline tasks={done} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus} parents={parents} tipos={tipos}/>}
+      {sv==='board'?<BoardView tasks={done} allTasks={allTasks} setTasks={setTasks} openCreate={null} openEdit={openEdit} iStatus={iStatus} setIStatus={setIStatus} statusProduto={statusProduto} openBulkCreate={openBulkCreate}/>:<Timeline tasks={done} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus} parents={parents} tipos={tipos}/>}
     </div>
   );
 }
@@ -1577,7 +1587,7 @@ function BulkCreateModal({grupo,onSave,onClose,nextId,allResp}){
   const saveAll=()=>{
     const valid=rows.filter(r=>r.t.trim());
     if(!valid.length)return;
-    const today=new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+    const today=todayStr();
     const items=valid.map(row=>({t:row.t.trim(),c:row.c.trim(),v:'',s:row.s,r:row.r,g:grupo,ng:'',mr:'',a:today+' - Card criado'}));
     onSave(items,nextId);
     onClose();
@@ -1826,10 +1836,10 @@ function DashboardView({tasks,iStatus={},riscos=[],deps=[]}){
     return done.filter(t=>{
       if(!t.a)return false;
       return t.a.split('\n').some(line=>{
-        const m=line.match(/^(\d{1,2})\/(\d{1,2})/);
-        if(!m)return false;
+        const d=lineDate(line);
+        if(!d)return false;
         if(!/deploy em prd/i.test(line))return false;
-        return(+m[2]-1)===now.getMonth();
+        return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear();
       });
     }).length;
   },[done]);
@@ -1851,7 +1861,7 @@ function DashboardView({tasks,iStatus={},riscos=[],deps=[]}){
         while((m=re.exec(line))){
           const dia=+m[1],mes=+m[2];
           if(dia<1||dia>31||mes<1||mes>12)continue;
-          let ano=m[3]?+m[3]:2026;
+          let ano=m[3]?+m[3]:LEGACY_YEAR;
           if(ano<100)ano+=2000;
           const d=new Date(ano,mes-1,dia);
           if(isNaN(d))continue;
@@ -2329,6 +2339,7 @@ function AppMain({currentUser,onLogout}){
   },[]);
   const closeToast=useCallback(()=>setToast(null),[]);
   const[saveTick,setSaveTick]=useState(0); // forca nova tentativa de gravacao
+  const knownTaskIds=useRef(new Set());
 
   // Carrega a lista de times primeiro
   const teamInit=useRef(false);
@@ -2369,6 +2380,7 @@ function AppMain({currentUser,onLogout}){
         const maxId=await loadMaxTaskId();
         if(cancelled)return;
         const td=Array.isArray(t)&&t.length>0?t:[];
+        knownTaskIds.current=new Set(td.map(x=>x.id));
         setTasks(td);
         setNextId(Math.max(maxId,...td.map(x=>x.id||0),0)+1);
         // sempre resetar: ao trocar de time, chaves ausentes nao podem herdar (e gravar) dados do time anterior
@@ -2402,7 +2414,7 @@ function AppMain({currentUser,onLogout}){
 
   // Save to Supabase (debounced)
   const rw=loaded&&!loadError&&!!validTeamId; // grava so com time valido e dados carregados com sucesso
-  useEffect(()=>{if(!rw)return;const t=setTimeout(()=>persist(()=>saveTasks(tasks,validTeamId)),600);return()=>clearTimeout(t);},[tasks,rw,validTeamId,persist,saveTick]);
+  useEffect(()=>{if(!rw)return;const t=setTimeout(()=>persist(()=>saveTasks(tasks,validTeamId,knownTaskIds.current)),600);return()=>clearTimeout(t);},[tasks,rw,validTeamId,persist,saveTick]);
   useEffect(()=>{if(!rw)return;const t=setTimeout(()=>persist(()=>dbSet('istatus',iStatus,validTeamId)),600);return()=>clearTimeout(t);},[iStatus,rw,validTeamId,persist,saveTick]);
   useEffect(()=>{if(!rw)return;const t=setTimeout(()=>persist(()=>dbSet('users',users)),600);return()=>clearTimeout(t);},[users,rw,persist,saveTick]);
   useEffect(()=>{if(!rw)return;const t=setTimeout(()=>persist(()=>dbSet('tipos',tipos,validTeamId)),600);return()=>clearTimeout(t);},[tipos,rw,validTeamId,persist,saveTick]);
@@ -2432,7 +2444,7 @@ function AppMain({currentUser,onLogout}){
   const addSub=(pai,titulo)=>handleSave({t:titulo,c:'',v:'',s:'Pendente',r:'',g:pai.g,tipo:'Tarefa',parent:pai.id,a:''},null);
   // tarefa criada direto numa coluna do kanban de backlog
   const addBacklogTask=(grupo,titulo,col)=>{
-    const hoje=new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+    const hoje=todayStr();
     const id=Math.max(nextId,tasks.reduce((m,t)=>Math.max(m,t.id||0),0)+1);
     setTasks(prev=>[...prev,{id,g:grupo,t:titulo,c:'',v:'',s:'Nao Iniciado',r:'',mr:'',a:hoje+' - Criado no backlog'}]);
     setNextId(id+1);
@@ -2441,7 +2453,7 @@ function AppMain({currentUser,onLogout}){
     setToast('Tarefa adicionada ao backlog');
   };
   const handleMultiSave=(items,startId)=>{
-    const today=new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+    const today=todayStr();
     const newTasks=items.map((data,i)=>({...data,id:startId+i,a:data.a||today+' - Card criado'}));
     setTasks(prev=>[...prev,...newTasks]);
     setNextId(n=>n+newTasks.length);
@@ -2462,7 +2474,7 @@ function AppMain({currentUser,onLogout}){
       setParent(editId,parent);
       setToast(parent?'Subtarefa atualizada!':'Tarefa atualizada!');
     }else{
-      const today=new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+      const today=todayStr();
       const a=rest.a||today+' - Card criado';
       // protege contra colisao quando duas subtarefas sao criadas em sequencia
       const id=Math.max(nextId,tasks.reduce((m,t)=>Math.max(m,t.id||0),0)+1);
@@ -2592,7 +2604,7 @@ function AppMain({currentUser,onLogout}){
             :view==='timeline'?<Timeline tasks={boardTasks} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus} parents={parents} tipos={tipos}/>
             :view==='backlog'?<BacklogView tasks={tasks} iStatus={iStatus} statusProduto={statusProduto} setIStatus={canEdit?setIStatus:null} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null} parents={parents} tipos={tipos} ordem={ordem} setOrdem={canEdit?setOrdem:null} openCreateSub={canEdit?openCreateSub:null} setTasks={canEdit?setTasks:null} onAddSub={canEdit?addSub:null} backlog={backlog} setBacklog={canEdit?setBacklog:null} onAddBacklogTask={canEdit?addBacklogTask:null} allG={allG}/>
             :view==='depriscos'?<DependenciasRiscosView tasks={tasks} deps={deps} setDeps={setDeps} riscos={riscos} setRiscos={setRiscos} allG={allG} canEdit={canEdit}/>
-            :<HistoricoView tasks={historicoTasks} setTasks={setTasks} parents={parents} tipos={tipos} openEdit={openEdit} iStatus={iStatus} setIStatus={canEdit?setIStatus:null} statusProduto={statusProduto} openBulkCreate={canEdit?setBulkCreate:null} canEdit={canEdit}/>}
+            :<HistoricoView tasks={historicoTasks} allTasks={tasks} setTasks={setTasks} parents={parents} tipos={tipos} openEdit={openEdit} iStatus={iStatus} setIStatus={canEdit?setIStatus:null} statusProduto={statusProduto} openBulkCreate={canEdit?setBulkCreate:null} canEdit={canEdit}/>}
         </div>
       </div>
       <Drawer open={drawerOpen} onClose={()=>setDrawerOpen(false)} onSave={handleSave} grupos={allG} parents={parents} tasks={tasks} allResp={[...new Set([...resps,...(editing?respList(editing.r):[])])].sort((a,b)=>a.localeCompare(b,'pt-BR'))} editing={editing} tipos={tipos}/>
@@ -3289,17 +3301,25 @@ async function loadMaxTaskId(){
   if(error)throw error;
   return data&&data.length?Number(data[0].id)||0:0;
 }
-async function saveTasks(tasks,teamId){
+// known: ids que esta sessao ja viu no banco ou criou. So eles podem ser apagados.
+// Antes, qualquer tarefa do banco ausente da tela era removida — inclusive as criadas
+// por outro usuario depois que esta sessao carregou os dados.
+async function saveTasks(tasks,teamId,known){
   if(!teamId)return; // Visao Geral e somente leitura
   const rows=tasks.map(t=>({...taskToRow(t),team_id:teamId}));
-  const{error}=await sb.from('tasks').upsert(rows,{onConflict:'id'});
-  if(error){console.error('saveTasks upsert',error);return error;}
-  // so remove tarefas DO TIME ATUAL — nunca de outros times
-  const{data:all,error:e2}=await sb.from('tasks').select('id').eq('team_id',teamId);
-  if(e2){console.error('saveTasks select',e2);return e2;}
+  if(rows.length){
+    const{error}=await sb.from('tasks').upsert(rows,{onConflict:'id'});
+    if(error){console.error('saveTasks upsert',error);return error;}
+  }
   const keep=new Set(tasks.map(t=>t.id));
-  const del=all.filter(r=>!keep.has(r.id)).map(r=>r.id);
-  if(del.length){const{error:e3}=await sb.from('tasks').delete().in('id',del);if(e3){console.error('saveTasks delete',e3);return e3;}}
+  keep.forEach(id=>known.add(id));
+  const del=[...known].filter(id=>!keep.has(id));
+  if(del.length){
+    // so remove tarefas DO TIME ATUAL — nunca de outros times
+    const{error:e3}=await sb.from('tasks').delete().in('id',del).eq('team_id',teamId);
+    if(e3){console.error('saveTasks delete',e3);return e3;}
+    del.forEach(id=>known.delete(id));
+  }
 }
 async function loadStatusProduto(teamId){
   for(const tbl of['status produto','status_produto']){
