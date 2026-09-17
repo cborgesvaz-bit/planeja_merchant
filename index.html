@@ -1441,7 +1441,7 @@ function InitiativeManager({tasks,setTasks,iStatus={},setIStatus,statusProduto=[
   const createG=()=>{
     const n=newN.trim();if(!n)return;
     if(grupos.some(g=>g.name===n))return;
-    setTasks(prev=>[...prev,{id:Date.now(),g:n,t:'Nova tarefa - edite ou exclua',c:'',v:'',s:'Nao Iniciado',r:'',mr:'',a:todayStr()+' - Card criado'}]);
+    setTasks(prev=>[...prev,{id:Date.now()+Math.floor(Math.random()*1000),g:n,t:'Nova tarefa - edite ou exclua',c:'',v:'',s:'Nao Iniciado',r:'',mr:'',a:todayStr()+' - Card criado'}]);
     setStatus(n,newS);
     setNewN('');
   };
@@ -2128,8 +2128,8 @@ function DependenciasRiscosView({tasks,deps,setDeps,riscos,setRiscos,allG=[],can
     <div style={{padding:'20px 24px 48px'}}>
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16,flexWrap:'wrap',gap:10}}>
         <div style={{display:'flex',gap:6,background:'var(--bg)',border:'1px solid var(--border2)',borderRadius:9,padding:3}}>
-          <button onClick={()=>setTab('dep')} style={{padding:'6px 14px',borderRadius:7,border:'none',fontSize:12,fontWeight:600,cursor:'pointer',background:tab==='dep'?'#EEF2FF':'transparent',color:tab==='dep'?'var(--accent)':'var(--txt2)'}}>Dependências ({deps.length})</button>
-          <button onClick={()=>setTab('risco')} style={{padding:'6px 14px',borderRadius:7,border:'none',fontSize:12,fontWeight:600,cursor:'pointer',background:tab==='risco'?'#FEF2F2':'transparent',color:tab==='risco'?'#DC2626':'var(--txt2)'}}>Riscos ({riscos.length})</button>
+          <button onClick={()=>setTab('dep')} style={{padding:'6px 14px',borderRadius:7,border:'none',fontSize:12,fontWeight:600,cursor:'pointer',background:tab==='dep'?'rgba(99,102,241,.12)':'transparent',color:tab==='dep'?'var(--accent)':'var(--txt2)'}}>Dependências ({deps.length})</button>
+          <button onClick={()=>setTab('risco')} style={{padding:'6px 14px',borderRadius:7,border:'none',fontSize:12,fontWeight:600,cursor:'pointer',background:tab==='risco'?'rgba(220,38,38,.1)':'transparent',color:tab==='risco'?'#DC2626':'var(--txt2)'}}>Riscos ({riscos.length})</button>
         </div>
         {canEdit&&<button onClick={tab==='dep'?newDep:newRisco} style={{padding:'7px 16px',background:'linear-gradient(135deg,var(--accent),var(--cyan))',border:'none',borderRadius:99,color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}}>{tab==='dep'?'+ Nova dependência':'+ Novo risco'}</button>}
       </div>
@@ -2318,6 +2318,11 @@ function AppMain({currentUser,onLogout}){
   const[deps,setDeps]=useState([]);
   const[riscos,setRiscos]=useState([]);
   const[nextId,setNextId]=useState(1);
+  // Ids novos partem do relogio (e nunca repetem na sessao). Um contador "max+1" calculado no
+  // carregamento colidia com tarefas criadas por outro usuario depois disso — o upsert
+  // sobrescrevia a tarefa dele — e reaproveitava ids excluidos (herdando tipo/pai antigos).
+  const lastIdRef=useRef(0);
+  const allocIds=n=>{const base=Math.max(lastIdRef.current+1,Date.now());lastIdRef.current=base+n-1;setNextId(lastIdRef.current+1);return base;};
   const[loaded,setLoaded]=useState(false);
   const[view,setView]=useState('dashboard');
   const[drawerOpen,setDrawerOpen]=useState(false);
@@ -2382,7 +2387,8 @@ function AppMain({currentUser,onLogout}){
         const td=Array.isArray(t)&&t.length>0?t:[];
         knownTaskIds.current=new Set(td.map(x=>x.id));
         setTasks(td);
-        setNextId(Math.max(maxId,...td.map(x=>x.id||0),0)+1);
+        lastIdRef.current=Math.max(lastIdRef.current,maxId,...td.map(x=>x.id||0),0);
+        setNextId(lastIdRef.current+1);
         // sempre resetar: ao trocar de time, chaves ausentes nao podem herdar (e gravar) dados do time anterior
         setIStatus(is&&typeof is==='object'&&!Array.isArray(is)?is:{});
         if(u&&Array.isArray(u)&&u.length>0)setUsers(u);
@@ -2445,18 +2451,17 @@ function AppMain({currentUser,onLogout}){
   // tarefa criada direto numa coluna do kanban de backlog
   const addBacklogTask=(grupo,titulo,col)=>{
     const hoje=todayStr();
-    const id=Math.max(nextId,tasks.reduce((m,t)=>Math.max(m,t.id||0),0)+1);
+    const id=allocIds(1);
     setTasks(prev=>[...prev,{id,g:grupo,t:titulo,c:'',v:'',s:'Nao Iniciado',r:'',mr:'',a:hoje+' - Criado no backlog'}]);
-    setNextId(id+1);
     setTipos(prev=>({...prev,[id]:'Tarefa'}));
     setBacklog(prev=>({...prev,[id]:col}));
     setToast('Tarefa adicionada ao backlog');
   };
-  const handleMultiSave=(items,startId)=>{
+  const handleMultiSave=items=>{
     const today=todayStr();
+    const startId=allocIds(items.length);
     const newTasks=items.map((data,i)=>({...data,id:startId+i,a:data.a||today+' - Card criado'}));
     setTasks(prev=>[...prev,...newTasks]);
-    setNextId(n=>n+newTasks.length);
     setTipos(prev=>{const n={...prev};newTasks.forEach(t=>{n[t.id]=t.tipo||'Tarefa';});return n;});
     setToast(newTasks.length+' card'+(newTasks.length!==1?'s':'')+' criado'+(newTasks.length!==1?'s':'')+' em "'+items[0].g+'"');
   };
@@ -2477,8 +2482,8 @@ function AppMain({currentUser,onLogout}){
       const today=todayStr();
       const a=rest.a||today+' - Card criado';
       // protege contra colisao quando duas subtarefas sao criadas em sequencia
-      const id=Math.max(nextId,tasks.reduce((m,t)=>Math.max(m,t.id||0),0)+1);
-      setTasks(prev=>[...prev,{...rest,id,a}]);setNextId(id+1);
+      const id=allocIds(1);
+      setTasks(prev=>[...prev,{...rest,id,a}]);
       setTipos(prev=>({...prev,[id]:tipo||'Tarefa'}));
       setParent(id,parent);
       // a subtarefa nasce logo abaixo do pai na ordem do backlog
