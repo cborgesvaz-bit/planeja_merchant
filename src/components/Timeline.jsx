@@ -3,6 +3,7 @@ import { CellEditor } from './CellEditor';
 import { Pill } from './ui';
 import { IS_CFG, IS_CFG_BASE, PH, SC, getISCfg, tn } from '../lib/constants';
 import { fmtDate, getTaskDayMap, parseDate, weekStart } from '../lib/utils';
+import { exportTimelineXLSX } from '../lib/export';
 
 export function Timeline({tasks,setTasks,iStatus={},setIStatus}){
   const[tooltip,setTooltip]=useState(null);
@@ -116,6 +117,7 @@ export function Timeline({tasks,setTasks,iStatus={},setIStatus}){
         <div style={{display:'flex',gap:5,flexWrap:'wrap',alignItems:'center'}}>
           {Object.keys(grouped).map(g=><Pill key={g} val={g.length>18?g.slice(0,18)+'...':g} active={fGrupo.includes(g)} onClick={()=>setFGrupo(prev=>prev.includes(g)?prev.filter(x=>x!==g):[...prev,g])}/>)}
           {fGrupo.length>0&&<button onClick={()=>setFGrupo([])} style={{fontSize:10,color:'#F87171',background:'none',border:'none',cursor:'pointer'}}>x</button>}
+          <button onClick={()=>exportTimelineXLSX(fGrp,iStatus)} title="Exportar Linha do Tempo para Excel" style={{marginLeft:6,fontSize:11,fontWeight:600,padding:'4px 10px',borderRadius:6,border:'1px solid #10B981',background:'rgba(16,185,129,.1)',color:'#047857',cursor:'pointer'}}>Exportar Excel</button>
         </div>
       </div>
       <div style={{display:'flex',flexDirection:'column',height:'calc(100vh - 130px)',overflow:'hidden',borderTop:'1px solid var(--border)'}}>
