@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
-import { tn } from './constants';
-import { detectPhase } from './utils';
+import { PH, tn } from './constants';
+import { detectPhase, getTaskDayMap } from './utils';
 
 export function exportXLSX(tasks){
   
@@ -63,3 +63,44 @@ export function exportXLSX(tasks){
   XLSX.writeFile(wb,'planeja-merchant.xlsx');
 }
 
+
+// Exporta a Linha do Tempo (Board + planejamento) como exibida na tela
+export function exportTimelineXLSX(grouped,iStatus={}){
+  const phName=(act,task)=>act.ph==='CUSTOM'&&act.cl?act.cl:act.ph==='DEV'?('Desenvolvimento'+(task.r?' ('+task.r+')':'')):(PH[act.ph]?.lb||act.ph);
+  const fmt=dk=>dk.split('-').reverse().join('/');
+  const wb=XLSX.utils.book_new();
+
+  // ── Aba 1: Atividades (uma linha por tarefa x dia) ──
+  const rows=[];const allDays=new Set();
+  Object.entries(grouped).forEach(([g,gtasks])=>gtasks.forEach(task=>{
+    const dmap=getTaskDayMap(task);
+    Object.keys(dmap).sort().forEach(dk=>{
+      const act=dmap[dk];allDays.add(dk);
+      rows.push({
+        'Data':fmt(dk),'Iniciativa':g,'Status Iniciativa':iStatus[g]||'','Card':task.c||'','Tarefa':task.t,
+        'Fase':phName(act,task),'Origem':act.src==='plan'?'Planejamento':'Board','Responsavel':task.r||'',
+        'Status Tarefa':task.s||'','Descricao':act.lines.map(l=>l.replace(/^\d{1,2}\/\d{1,2}\s*[-\u2014]?\s*/,'')).join(' | '),
+        _k:dk,
+      });
+    });
+  }));
+  rows.sort((a,b)=>a._k.localeCompare(b._k)||a.Iniciativa.localeCompare(b.Iniciativa,'pt-BR'));
+  const ws1=XLSX.utils.json_to_sheet(rows.map(({_k,...r})=>r));
+  ws1['!cols']=[{wch:11},{wch:28},{wch:18},{wch:12},{wch:55},{wch:22},{wch:13},{wch:16},{wch:18},{wch:60}];
+  XLSX.utils.book_append_sheet(wb,ws1,'Atividades');
+
+  // ── Aba 2: Grade (tarefas x dias, estilo Gantt) ──
+  const days=[...allDays].sort();
+  if(days.length){
+    const grid=[['Iniciativa','Card','Tarefa',...days.map(fmt)]];
+    Object.entries(grouped).forEach(([g,gtasks])=>gtasks.forEach(task=>{
+      const dmap=getTaskDayMap(task);
+      grid.push([g,task.c||'',task.t,...days.map(dk=>dmap[dk]?phName(dmap[dk],task):'')]);
+    }));
+    const ws2=XLSX.utils.aoa_to_sheet(grid);
+    ws2['!cols']=[{wch:28},{wch:12},{wch:50},...days.map(()=>({wch:12}))];
+    XLSX.utils.book_append_sheet(wb,ws2,'Grade');
+  }
+
+  XLSX.writeFile(wb,'linha-do-tempo-'+new Date().toISOString().slice(0,10)+'.xlsx');
+}

@@ -1095,6 +1095,8 @@ function Timeline({tasks,setTasks,iStatus={},setIStatus,parents={},tipos={},deps
   const[cellEd,setCellEd]=useState(null);
   const[fGrupo,setFGrupo]=useState([]);
   const[collapsed,setCollapsed]=useState(new Set());
+  const[hideSubs,setHideSubs]=useState(()=>{try{return localStorage.getItem('tl_hideSubs')==='1';}catch(e){return false;}});
+  const toggleSubs=()=>setHideSubs(v=>{try{localStorage.setItem('tl_hideSubs',v?'0':'1');}catch(e){}return !v;});
   const initRef=useRef(false);
   const scrollRef=useRef(null);
   const headerRef=useRef(null);
@@ -1222,6 +1224,7 @@ function Timeline({tasks,setTasks,iStatus={},setIStatus,parents={},tipos={},deps
         <div style={{display:'flex',gap:5,flexWrap:'wrap',alignItems:'center'}}>
           {Object.keys(grouped).map(g=><Pill key={g} val={g.length>18?g.slice(0,18)+'...':g} active={fGrupo.includes(g)} onClick={()=>setFGrupo(prev=>prev.includes(g)?prev.filter(x=>x!==g):[...prev,g])}/>)}
           {fGrupo.length>0&&<button onClick={()=>setFGrupo([])} style={{fontSize:10,color:'#F87171',background:'none',border:'none',cursor:'pointer'}}>x</button>}
+          {Object.values(grouped).some(g=>g.some(t=>(t._depth||0)>0))&&<button onClick={toggleSubs} title={hideSubs?'Mostrar subtasks na linha do tempo':'Ocultar subtasks para visualizar melhor a linha do tempo'} style={{fontSize:10,fontWeight:600,padding:'3px 10px',borderRadius:99,border:'1px solid '+(hideSubs?'rgba(37,99,235,.45)':'var(--border2)'),background:hideSubs?'rgba(37,99,235,.12)':'transparent',color:hideSubs?'#2563EB':'var(--txt2)',cursor:'pointer',marginLeft:6}}>{hideSubs?'👁 Mostrar subtasks':'🙈 Ocultar subtasks'}</button>}
         </div>
       </div>
       <div style={{display:'flex',flexDirection:'column',height:'calc(100vh - 130px)',overflow:'hidden',borderTop:'1px solid var(--border)'}}>
@@ -1289,7 +1292,7 @@ function Timeline({tasks,setTasks,iStatus={},setIStatus,parents={},tipos={},deps
                   return allWeeks.slice(ms.si,ms.si+ms.wc).map((w,wi)=>w.days.map(d=><div key={d.toISOString().slice(0,10)} style={{width:DW,flexShrink:0,background:'rgba(255,255,255,.01)',borderLeft:d.getDay()===1?'1px solid var(--border2)':'1px solid var(--border)'}}/>));
                 })}
               </div>
-              {gtasks.map(task=>{
+              {gtasks.filter(t=>!hideSubs||(t._depth||0)===0).map(task=>{
                 const dmap=getTaskDayMap(task);
                 const cfg=SC[task.s]||{};
                 return(
