@@ -766,6 +766,8 @@ function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,ope
   const toggleSort=col=>{if(sortCol!==col){setSortCol(col);setSortDir('asc');}else{const n=SCY[sortDir];if(!n){setSortCol(null);setSortDir(null);}else setSortDir(n);}};
   const toggleF=(arr,setArr,val)=>setArr(prev=>prev.includes(val)?prev.filter(v=>v!==val):[...prev,val]);
   const toggleRow=id=>setExpanded(prev=>{const s=new Set(prev);s.has(id)?s.delete(id):s.add(id);return s;});
+  const[subsAbertos,setSubsAbertos]=useState(new Set());
+  const toggleSubs=id=>setSubsAbertos(prev=>{const s=new Set(prev);s.has(id)?s.delete(id):s.add(id);return s;});
   const toggleSel=id=>setSelected(prev=>{const s=new Set(prev);s.has(id)?s.delete(id):s.add(id);return s;});
   const selAll=ids=>{const all=ids.every(id=>selected.has(id));setSelected(prev=>{const s=new Set(prev);all?ids.forEach(id=>s.delete(id)):ids.forEach(id=>s.add(id));return s;});};
   const clearSel=()=>setSelected(new Set());
@@ -1018,14 +1020,14 @@ function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,ope
                           <div style={{display:'flex',alignItems:'center',gap:7,flexWrap:'wrap',paddingLeft:(task._depth||0)*22}}>
                             {(task._depth||0)>0&&<span title="Subtarefa" style={{color:'var(--txt3)',fontFamily:'monospace',fontSize:12,flexShrink:0}}>&#8627;</span>}
                             <TipoBadge tipo={tipos[task.id]}/><span>{task.t}</span>
-                            {(()=>{const subs=childrenOf(allTasks||tasks,parents,task.id);const n=subs.length;if(!n)return null;const d=subs.filter(s=>DONE.includes(s.s)).length;return <span title={n+' subtarefa'+(n!==1?'s':'')} style={{fontSize:10,fontWeight:700,color:d===n?'#059669':'var(--txt2)',background:'var(--bg3)',border:'1px solid var(--border)',borderRadius:99,padding:'1px 7px'}}>{d}/{n} sub</span>;})()}
+                            {(()=>{const subs=childrenOf(allTasks||tasks,parents,task.id);const n=subs.length;if(!n)return null;const d=subs.filter(s=>DONE.includes(s.s)).length;const ab=subsAbertos.has(task.id);return <button onClick={e=>{e.stopPropagation();toggleSubs(task.id);}} title={(ab?'Ocultar ':'Mostrar ')+n+' subtarefa'+(n!==1?'s':'')} style={{fontSize:10,fontWeight:700,color:d===n?'#059669':(ab?'var(--accent)':'var(--txt2)'),background:ab?'rgba(37,99,235,.08)':'var(--bg3)',border:'1px solid '+(ab?'rgba(37,99,235,.3)':'var(--border)'),borderRadius:99,padding:'1px 7px',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:3}}><span style={{display:'inline-block',transform:ab?'rotate(90deg)':'none',transition:'transform .15s'}}>&#9656;</span>{d}/{n} sub</button>;})()}
                           </div>
-                          {/* subtarefas aninhadas dentro da tarefa pai */}
-                          {!mostrarSubs&&(task._depth||0)===0&&(()=>{
+                          {/* subtarefas aninhadas dentro da tarefa pai (recolhidas por padrao) */}
+                          {!mostrarSubs&&(task._depth||0)===0&&subsAbertos.has(task.id)&&(()=>{
                             const subs=childrenOf(allTasks||tasks,parents,task.id).sort(cmpTn);
                             if(!subs.length)return null;
                             return(
-                              <div style={{marginTop:7,marginLeft:4,paddingLeft:10,borderLeft:'2px solid var(--border2)',display:'flex',flexDirection:'column',gap:4}}>
+                              <div style={{marginTop:7,marginLeft:4,paddingLeft:10,borderLeft:'2px solid var(--border2)',display:'flex',flexDirection:'column',gap:4,maxHeight:170,overflowY:subs.length>5?'auto':'visible',paddingRight:subs.length>5?4:0}}>
                                 {subs.map(st=>{
                                   const ok=DONE.includes(st.s);
                                   return(
