@@ -3247,7 +3247,6 @@ function BacklogKanban({tasks,backlog={},setBacklog,setTasks,openEdit,tipos={},p
 }
 
 function BacklogView({tasks,iStatus,statusProduto,setIStatus,openCreate,openEdit,parents={},tipos={},ordem={},setOrdem,openCreateSub,setTasks,onAddSub,backlog={},setBacklog,onAddBacklogTask,allG=[]}){
-  const[modo,setModo]=useState('kanban');
   const[busca,setBusca]=useState('');
   const[fechadas,setFechadas]=useState(new Set());
   const[subAberto,setSubAberto]=useState(null);   // id do pai com o campo de subtarefa aberto
@@ -3318,23 +3317,19 @@ function BacklogView({tasks,iStatus,statusProduto,setIStatus,openCreate,openEdit
   const SCOL={"Em andamento":"#0891B2","Bloqueado":"#DC2626","Nao Iniciado":"#6B7280","Aguard. Deploy PRD":"#B45309","Paralisado":"#EA580C","Finalizado":"#059669","Entregue":"#047857","Deploy PRD":"#0369A1","Pendente":"#7C3AED"};
   const btnIco={width:20,height:18,borderRadius:5,background:'transparent',border:'1px solid var(--border)',color:'var(--txt3)',cursor:'pointer',fontSize:9,lineHeight:1,display:'flex',alignItems:'center',justifyContent:'center',padding:0};
 
-  const trocaModo=(
-    <div style={{display:'flex',gap:4,background:'var(--bg)',border:'1px solid var(--border2)',borderRadius:9,padding:3}}>
-      {[['kanban','Kanban'],['lista','Por iniciativa']].map(([m,lbl])=>(
-        <button key={m} onClick={()=>setModo(m)} style={{padding:'5px 12px',borderRadius:7,border:'none',fontSize:11.5,fontWeight:600,cursor:'pointer',background:modo===m?'var(--bg3)':'transparent',color:modo===m?'var(--accent)':'var(--txt2)'}}>{lbl}</button>
-      ))}
-    </div>
-  );
-
-  if(modo==='kanban')return <BacklogKanban tasks={tasks} backlog={backlog} setBacklog={setBacklog} setTasks={setTasks}
-    openEdit={openEdit} tipos={tipos} parents={parents} iStatus={iStatus} allG={allG}
-    onAddBacklogTask={onAddBacklogTask} trocaModo={trocaModo}/>;
+  // Separa as iniciativas por status: Backlog primeiro, depois a ordem dos status de produto
+  const secoes=useMemo(()=>{
+    const ordemS=['Backlog',...statusProduto.filter(s=>s!=='Backlog')];
+    const m={};
+    backlogGrupos.forEach(g=>{const s=iStatus[g]||'Backlog';(m[s]=m[s]||[]).push(g);});
+    const extras=Object.keys(m).filter(s=>!ordemS.includes(s));
+    return[...ordemS,...extras].filter(s=>m[s]).map(s=>[s,m[s]]);
+  },[backlogGrupos,iStatus,statusProduto]);
 
   return(
     <div>
       <div style={{padding:'14px 24px 12px',borderBottom:'1px solid var(--border)',background:'var(--bg1)',display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:10}}>
         <div style={{display:'flex',alignItems:'center',gap:10}}>
-          {trocaModo}
           <div style={{width:8,height:8,borderRadius:'50%',background:'#6B7280'}}/>
           <span style={{fontSize:13,fontWeight:700,color:'var(--txt1)'}}>Backlog de Iniciativas</span>
           <span style={{fontSize:11,color:'var(--txt3)',background:'var(--bg2)',border:'1px solid var(--border)',padding:'1px 9px',borderRadius:99}}>{backlogGrupos.length} iniciativa{backlogGrupos.length!==1?'s':''} · {allTasks.length} tarefa{allTasks.length!==1?'s':''}</span>
@@ -3352,8 +3347,16 @@ function BacklogView({tasks,iStatus,statusProduto,setIStatus,openCreate,openEdit
            <div style={{fontSize:14,fontWeight:600,color:'var(--txt2)'}}>Nenhuma iniciativa em Backlog</div>
            <div style={{fontSize:12,marginTop:4}}>Todas as iniciativas têm status definido</div>
          </div>
-        :<div style={{padding:'20px 24px',display:'flex',flexDirection:'column',gap:14}}>
-           {backlogGrupos.map(grupo=>{
+        :<div style={{padding:'20px 24px',display:'flex',flexDirection:'column',gap:22}}>
+           {secoes.map(([st,gs])=>(
+           <div key={st} style={{display:'flex',flexDirection:'column',gap:14}}>
+             <div style={{display:'flex',alignItems:'center',gap:8}}>
+               <div style={{width:8,height:8,borderRadius:'50%',background:getISCfg(st).c}}/>
+               <span style={{fontSize:12.5,fontWeight:700,color:getISCfg(st).c}}>{st}</span>
+               <span style={{fontSize:11,color:'var(--txt3)'}}>{gs.length} iniciativa{gs.length!==1?'s':''}{st!=='Backlog'?' · só tarefas ainda no backlog':''}</span>
+               <div style={{flex:1,height:1,background:'var(--border)'}}/>
+             </div>
+           {gs.map(grupo=>{
              const gtasks=tarefasDo(grupo);
              const parcial=!grupoInteiro(grupo);
              const lista=listaDo(grupo);
@@ -3419,6 +3422,8 @@ function BacklogView({tasks,iStatus,statusProduto,setIStatus,openCreate,openEdit
                </div>
              );
            })}
+           </div>
+           ))}
          </div>
       }
     </div>
