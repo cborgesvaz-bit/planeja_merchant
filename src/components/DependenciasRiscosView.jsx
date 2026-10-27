@@ -24,6 +24,7 @@ export function DependenciasRiscosView({tasks,deps,setDeps,riscos,setRiscos,allG
   const delDep=id=>setDeps(prev=>prev.filter(d=>d.id!==id));
   const delRisco=id=>setRiscos(prev=>prev.filter(r=>r.id!==id));
 
+  // Called as a function (not <Modal/>) so inputs aren't remounted on every keystroke
   const Modal=()=>{
     if(!form)return null;
     const{kind,data}=form;
@@ -120,7 +121,7 @@ export function DependenciasRiscosView({tasks,deps,setDeps,riscos,setRiscos,allG
             ))}
           </div>
       )}
-      <Modal/>
+      {Modal()}
     </div>
   );
 }
