@@ -1018,8 +1018,29 @@ function BoardView({tasks,setTasks,openCreate,openEdit,iStatus={},setIStatus,ope
                           <div style={{display:'flex',alignItems:'center',gap:7,flexWrap:'wrap',paddingLeft:(task._depth||0)*22}}>
                             {(task._depth||0)>0&&<span title="Subtarefa" style={{color:'var(--txt3)',fontFamily:'monospace',fontSize:12,flexShrink:0}}>&#8627;</span>}
                             <TipoBadge tipo={tipos[task.id]}/><span>{task.t}</span>
-                            {(()=>{const n=childrenOf(allTasks||tasks,parents,task.id).length;return n?<span title={n+' subtarefa'+(n!==1?'s':'')} style={{fontSize:10,fontWeight:700,color:'var(--txt2)',background:'var(--bg3)',border:'1px solid var(--border)',borderRadius:99,padding:'1px 7px'}}>{n} sub</span>:null;})()}
+                            {(()=>{const subs=childrenOf(allTasks||tasks,parents,task.id);const n=subs.length;if(!n)return null;const d=subs.filter(s=>DONE.includes(s.s)).length;return <span title={n+' subtarefa'+(n!==1?'s':'')} style={{fontSize:10,fontWeight:700,color:d===n?'#059669':'var(--txt2)',background:'var(--bg3)',border:'1px solid var(--border)',borderRadius:99,padding:'1px 7px'}}>{d}/{n} sub</span>;})()}
                           </div>
+                          {/* subtarefas aninhadas dentro da tarefa pai */}
+                          {!mostrarSubs&&(task._depth||0)===0&&(()=>{
+                            const subs=childrenOf(allTasks||tasks,parents,task.id).sort(cmpTn);
+                            if(!subs.length)return null;
+                            return(
+                              <div style={{marginTop:7,marginLeft:4,paddingLeft:10,borderLeft:'2px solid var(--border2)',display:'flex',flexDirection:'column',gap:4}}>
+                                {subs.map(st=>{
+                                  const ok=DONE.includes(st.s);
+                                  return(
+                                    <div key={st.id} onClick={e=>{if(openEdit){e.stopPropagation();openEdit(st,e);}}} title={openEdit?'Editar subtarefa':st.t}
+                                      style={{display:'flex',alignItems:'center',gap:7,fontSize:12,cursor:openEdit?'pointer':'default',padding:'2px 6px',borderRadius:6,background:'var(--bg)',border:'1px solid var(--border)'}}>
+                                      <span style={{color:'var(--txt3)',fontFamily:'monospace',fontSize:11,flexShrink:0}}>&#8627;</span>
+                                      <span style={{flex:1,minWidth:0,color:'var(--txt2)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',textDecoration:ok?'line-through':'none',opacity:ok?.7:1}}>{st.t}</span>
+                                      {st.r&&<span style={{fontSize:10,color:'var(--txt3)',whiteSpace:'nowrap'}}>{respList(st.r).join(', ')}</span>}
+                                      <Badge s={st.s}/>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })()}
                         </td>
                         <td style={{padding:'9px 11px',borderBottom:'1px solid var(--border)',background:bg}}><Badge s={task.s}/></td>
                         <td style={{padding:'11px 13px',borderBottom:'1px solid var(--border)',background:bg,fontSize:11}}>
@@ -1634,7 +1655,7 @@ function HistoricoView({tasks,setTasks,openEdit,iStatus,setIStatus,statusProduto
           ))}
         </div>
       </div>
-      {sv==='board'?<BoardView tasks={done} allTasks={allTasks} setTasks={setTasks} openCreate={null} openEdit={openEdit} iStatus={iStatus} setIStatus={setIStatus} statusProduto={statusProduto} openBulkCreate={openBulkCreate}/>:<Timeline tasks={done} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus} parents={parents} tipos={tipos}/>}
+      {sv==='board'?<BoardView tasks={done} allTasks={allTasks} setTasks={setTasks} openCreate={null} openEdit={openEdit} iStatus={iStatus} setIStatus={setIStatus} statusProduto={statusProduto} openBulkCreate={openBulkCreate} parents={parents} tipos={tipos}/>:<Timeline tasks={done} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus} parents={parents} tipos={tipos}/>}
     </div>
   );
 }
