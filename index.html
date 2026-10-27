@@ -2195,6 +2195,7 @@ function DependenciasPendenciasView({tasks,deps,setDeps,pendencias,setPendencias
   const totAbertas=pendencias.filter(p=>p.status!=='Resolvida').length;
   const totVencidas=pendencias.filter(p=>p.status!=='Resolvida'&&p.prazo&&p.prazo<hoje).length;
 
+  // Called as a function (not <Modal/>) so inputs aren't remounted on every keystroke
   const Modal=()=>{
     if(!form)return null;
     const{kind,data}=form;
@@ -2338,7 +2339,7 @@ function DependenciasPendenciasView({tasks,deps,setDeps,pendencias,setPendencias
             );
           })}
         </div>}
-      <Modal/>
+      {Modal()}
     </div>
   );
 }
