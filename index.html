@@ -198,10 +198,11 @@ function TipoBadge({tipo}){
   const cfg=TIPO_CFG[tipo]||TIPO_CFG.Tarefa;
   return <span style={{display:'inline-flex',alignItems:'center',padding:'2px 7px',borderRadius:5,background:cfg.bg,color:cfg.c,fontSize:9,fontWeight:700,textTransform:'uppercase',letterSpacing:.4,whiteSpace:'nowrap'}}>{cfg.lb}</span>;
 }
-// Riscos — severidade/status
-const RISK_SEV={"Baixa":{c:"#059669",bg:"rgba(5,150,105,.1)"},"Media":{c:"#B45309",bg:"rgba(180,83,9,.1)"},"Alta":{c:"#DC2626",bg:"rgba(220,38,38,.1)"}};
-const RISK_STATUS={"Ativo":{c:"#DC2626",bg:"rgba(220,38,38,.1)"},"Mitigado":{c:"#0891B2",bg:"rgba(8,145,178,.1)"},"Resolvido":{c:"#059669",bg:"rgba(5,150,105,.1)"}};
+// Pendencias por iniciativa — status (prazo guardado como YYYY-MM-DD)
+const fmtPrazo=s=>String(s).split('-').reverse().slice(0,2).join('/');
+const PEND_STATUS={"Aberta":{c:"#B45309",bg:"rgba(180,83,9,.1)"},"Resolvida":{c:"#059669",bg:"rgba(5,150,105,.1)"}};
 const DEP_TIPO={"Bloqueia":{c:"#DC2626",bg:"rgba(220,38,38,.1)"},"Aguarda":{c:"#B45309",bg:"rgba(180,83,9,.1)"},"Relacionada":{c:"#6B7280",bg:"rgba(107,114,128,.1)"}};
+const DEP_INV={"Bloqueia":"Bloqueada por","Aguarda":"Aguardada por","Relacionada":"Relacionada"}; // leitura do lado do destino
 const SCY={asc:"desc",desc:null,null:"asc"};
 const avColor=n=>`hsl(${n.charCodeAt(0)*15%360},45%,32%)`;
 const tn=t=>{const m=t.match(/^(\d+)\.(\d+)/);return m?+m[1]*10000+ +m[2]:999999;};
@@ -1885,7 +1886,7 @@ function BarRow({label,n,total,color,onClick}){
     </div>
   );
 }
-function DashboardView({tasks,iStatus={},riscos=[],deps=[],onDrill=()=>{}}){
+function DashboardView({tasks,iStatus={},pendencias=[],deps=[],onDrill=()=>{}}){
   const total=tasks.length;
   const done=tasks.filter(t=>DONE.includes(t.s));
   const active=tasks.filter(t=>!DONE.includes(t.s));
@@ -1907,8 +1908,9 @@ function DashboardView({tasks,iStatus={},riscos=[],deps=[],onDrill=()=>{}}){
       });
     }).length;
   },[done]);
-  const riscosAtivos=riscos.filter(r=>r.status==='Ativo');
-  const riscosAltos=riscosAtivos.filter(r=>r.severidade==='Alta');
+  const hojeIso=new Date().toISOString().slice(0,10);
+  const pendAbertas=pendencias.filter(p=>p.status!=='Resolvida');
+  const pendVencidas=pendAbertas.filter(p=>p.prazo&&p.prazo<hojeIso);
   const respCounts=useMemo(()=>{const m={};active.forEach(t=>{respList(t.r).forEach(r=>{m[r]=(m[r]||0)+1;});});return m;},[active]);
 
   // ---- Visao detalhada por iniciativa ----
@@ -1991,7 +1993,7 @@ function DashboardView({tasks,iStatus={},riscos=[],deps=[],onDrill=()=>{}}){
         <KpiCard label="Concluídas" value={done.length} sub="Finalizado + Entregue" color="#059669" onClick={()=>onDrill('historico')}/>
         <KpiCard label="Bloqueadas" value={bloqueadas} sub="Requerem atenção" color="#DC2626" onClick={()=>onDrill('board',{fStatus:['Bloqueado']})}/>
         <KpiCard label="Entregas no mês" value={entregasMes} sub="Deploy em PRD" color="#0369A1"/>
-        <KpiCard label="Riscos ativos" value={riscosAtivos.length} sub={riscosAltos.length+' de severidade alta'} color={riscosAltos.length?'#DC2626':'#6B7280'} onClick={()=>onDrill('depriscos')}/>
+        <KpiCard label="Pendências abertas" value={pendAbertas.length} sub={pendVencidas.length+' vencida'+(pendVencidas.length!==1?'s':'')} color={pendVencidas.length?'#DC2626':'#B45309'} onClick={()=>onDrill('depriscos')}/>
         <KpiCard label="Dependências mapeadas" value={deps.length} color="#7C3AED" onClick={()=>onDrill('depriscos')}/>
       </div>
 
@@ -2018,27 +2020,30 @@ function DashboardView({tasks,iStatus={},riscos=[],deps=[],onDrill=()=>{}}){
         </div>
       </div>
 
-      {/* ---- Riscos em aberto ---- */}
+      {/* ---- Pendencias em aberto, por iniciativa ---- */}
       <div style={{background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:12,padding:'18px 20px',marginTop:20}}>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
-          <div style={{fontSize:12,fontWeight:700,color:'var(--txt1)'}}>Riscos em aberto</div>
-          <span style={{fontSize:10,color:'var(--txt3)'}}>{riscosAtivos.length} ativo{riscosAtivos.length!==1?'s':''}</span>
+          <div style={{fontSize:12,fontWeight:700,color:'var(--txt1)'}}>Pendências em aberto por iniciativa</div>
+          <span style={{fontSize:10,color:'var(--txt3)'}}>{pendAbertas.length} aberta{pendAbertas.length!==1?'s':''}</span>
         </div>
-        {riscosAtivos.length===0
-          ?<div style={{fontSize:11,color:'var(--txt3)'}}>Nenhum risco ativo mapeado.</div>
+        {pendAbertas.length===0
+          ?<div style={{fontSize:11,color:'var(--txt3)'}}>Nenhuma pendência aberta.</div>
           :<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(320px,1fr))',gap:12}}>
-            {riscosAtivos.slice(0,6).map(r=>{
-              const sev=RISK_SEV[r.severidade]||RISK_SEV.Media;
-              return(
-                <div key={r.id} style={{border:'1px solid var(--border)',borderLeft:'3px solid '+sev.c,borderRadius:8,padding:'10px 12px',background:'var(--bg2)',display:'flex',flexDirection:'column',gap:6,minWidth:0}}>
-                  <div style={{display:'flex',alignItems:'flex-start',gap:8}}>
-                    <span title={r.descricao} style={{flex:1,minWidth:0,fontSize:12,lineHeight:1.45,color:'var(--txt1)',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{r.descricao}</span>
-                    <span style={{flexShrink:0,fontSize:9,fontWeight:700,letterSpacing:.3,textTransform:'uppercase',color:sev.c,background:sev.c+'14',border:'1px solid '+sev.c+'33',borderRadius:99,padding:'2px 8px'}}>{r.severidade}</span>
-                  </div>
-                  <span title={r.iniciativa||''} style={{fontSize:10,color:r.iniciativa?'var(--accent)':'var(--txt3)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.iniciativa||'Sem iniciativa vinculada'}</span>
+            {[...new Set(pendAbertas.map(p=>p.iniciativa))].map(g=>{
+              const ps=pendAbertas.filter(p=>p.iniciativa===g).sort((a,b)=>(a.prazo||'9999').localeCompare(b.prazo||'9999'));
+              const venc=ps.filter(p=>p.prazo&&p.prazo<hojeIso).length;
+              return{g,ps,venc};
+            }).sort((a,b)=>(b.venc-a.venc)||(b.ps.length-a.ps.length)).slice(0,6).map(({g,ps,venc})=>(
+              <div key={g} onClick={()=>onDrill('depriscos')} style={{cursor:'pointer',border:'1px solid var(--border)',borderLeft:'3px solid '+(venc?'#DC2626':'#B45309'),borderRadius:8,padding:'10px 12px',background:'var(--bg2)',display:'flex',flexDirection:'column',gap:6,minWidth:0}}>
+                <div style={{display:'flex',alignItems:'center',gap:8}}>
+                  <span title={g} style={{flex:1,minWidth:0,fontSize:12,fontWeight:700,color:'var(--txt1)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{g}</span>
+                  <span style={{flexShrink:0,fontSize:9,fontWeight:700,color:venc?'#DC2626':'#B45309',borderRadius:99,padding:'2px 8px',border:'1px solid var(--border)'}}>{ps.length}{venc?' · '+venc+' vencida'+(venc!==1?'s':''):''}</span>
                 </div>
-              );
-            })}
+                {ps.slice(0,3).map(p=>(
+                  <span key={p.id} title={p.descricao} style={{fontSize:11,color:'var(--txt2)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>• {p.descricao}{p.prazo?' — '+fmtPrazo(p.prazo):''}</span>
+                ))}
+              </div>
+            ))}
           </div>}
       </div>
 
@@ -2117,13 +2122,20 @@ function DashboardView({tasks,iStatus={},riscos=[],deps=[],onDrill=()=>{}}){
   );
 }
 
-function DependenciasRiscosView({tasks,deps,setDeps,riscos,setRiscos,allG=[],canEdit}){
-  const[tab,setTab]=useState('dep');
-  const[form,setForm]=useState(null); // {kind:'dep'|'risco', data:{...}} while editing/creating
+/* Dependencias & Pendencias — tudo agrupado por iniciativa.
+   Pendencia = {id,iniciativa,descricao,responsavel,prazo,status:'Aberta'|'Resolvida',obs} */
+function DependenciasPendenciasView({tasks,deps,setDeps,pendencias,setPendencias,allG=[],canEdit}){
+  const[form,setForm]=useState(null); // {kind:'dep'|'pend', data:{...}} while editing/creating
+  const[busca,setBusca]=useState('');
+  const[todas,setTodas]=useState(false);       // mostra tambem iniciativas sem nada mapeado
+  const[verResolvidas,setVerResolvidas]=useState(false);
+  const[fechadas,setFechadas]=useState(new Set());
   const ist={width:'100%',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:8,color:'var(--txt1)',fontSize:13,padding:'8px 11px',outline:'none'};
+  const lbl={fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8,marginBottom:5};
+  const hoje=new Date().toISOString().slice(0,10);
 
-  const newDep=()=>setForm({kind:'dep',data:{id:Date.now(),origem:allG[0]||'',destino:allG[0]||'',tipo:'Bloqueia',obs:''}});
-  const newRisco=()=>setForm({kind:'risco',data:{id:Date.now(),descricao:'',iniciativa:allG[0]||'',severidade:'Media',status:'Ativo',mitigacao:''}});
+  const newDep=g=>setForm({kind:'dep',data:{id:Date.now(),origem:g||allG[0]||'',destino:allG.find(x=>x!==g)||allG[0]||'',tipo:'Bloqueia',obs:''}});
+  const newPend=g=>setForm({kind:'pend',data:{id:Date.now(),iniciativa:g||allG[0]||'',descricao:'',responsavel:'',prazo:'',status:'Aberta',obs:''}});
 
   const save=()=>{
     if(!form)return;
@@ -2132,13 +2144,33 @@ function DependenciasRiscosView({tasks,deps,setDeps,riscos,setRiscos,allG=[],can
       if(!data.origem||!data.destino)return;
       setDeps(prev=>{const ex=prev.some(d=>d.id===data.id);return ex?prev.map(d=>d.id===data.id?data:d):[...prev,data];});
     }else{
-      if(!data.descricao.trim())return;
-      setRiscos(prev=>{const ex=prev.some(r=>r.id===data.id);return ex?prev.map(r=>r.id===data.id?data:r):[...prev,data];});
+      if(!data.descricao.trim()||!data.iniciativa)return;
+      setPendencias(prev=>{const ex=prev.some(p=>p.id===data.id);return ex?prev.map(p=>p.id===data.id?data:p):[...prev,data];});
     }
     setForm(null);
   };
   const delDep=id=>setDeps(prev=>prev.filter(d=>d.id!==id));
-  const delRisco=id=>setRiscos(prev=>prev.filter(r=>r.id!==id));
+  const delPend=id=>setPendencias(prev=>prev.filter(p=>p.id!==id));
+  const togglePend=p=>setPendencias(prev=>prev.map(x=>x.id===p.id?{...x,status:x.status==='Resolvida'?'Aberta':'Resolvida'}:x));
+  const toggleFechada=g=>setFechadas(prev=>{const n=new Set(prev);n.has(g)?n.delete(g):n.add(g);return n;});
+
+  const grupos=useMemo(()=>{
+    const nomes=new Set([...allG,...pendencias.map(p=>p.iniciativa),...deps.flatMap(d=>[d.origem,d.destino])].filter(Boolean));
+    const q=busca.toLowerCase();
+    return[...nomes].map(g=>{
+      const pend=pendencias.filter(p=>p.iniciativa===g);
+      const abertas=pend.filter(p=>p.status!=='Resolvida');
+      const vencidas=abertas.filter(p=>p.prazo&&p.prazo<hoje);
+      const dps=deps.filter(d=>d.origem===g||d.destino===g);
+      return{g,pend,abertas,vencidas,dps};
+    })
+    .filter(x=>todas||x.pend.length||x.dps.length)
+    .filter(x=>!q||x.g.toLowerCase().includes(q)||x.pend.some(p=>(p.descricao+' '+(p.responsavel||'')).toLowerCase().includes(q)))
+    .sort((a,b)=>(b.vencidas.length-a.vencidas.length)||(b.abertas.length-a.abertas.length)||a.g.localeCompare(b.g,'pt-BR'));
+  },[allG,pendencias,deps,busca,todas,hoje]);
+
+  const totAbertas=pendencias.filter(p=>p.status!=='Resolvida').length;
+  const totVencidas=pendencias.filter(p=>p.status!=='Resolvida'&&p.prazo&&p.prazo<hoje).length;
 
   const Modal=()=>{
     if(!form)return null;
@@ -2148,34 +2180,36 @@ function DependenciasRiscosView({tasks,deps,setDeps,riscos,setRiscos,allG=[],can
       <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.5)',zIndex:150,display:'flex',alignItems:'center',justifyContent:'center',padding:20}} onClick={()=>setForm(null)}>
         <div onClick={e=>e.stopPropagation()} style={{background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:12,width:'min(460px,100%)',boxShadow:'0 12px 48px rgba(0,0,0,.15)'}}>
           <div style={{padding:'18px 22px',borderBottom:'1px solid var(--border)'}}>
-            <div style={{fontSize:15,fontWeight:700,color:'var(--txt1)'}}>{kind==='dep'?'Dependência entre iniciativas':'Risco'}</div>
+            <div style={{fontSize:15,fontWeight:700,color:'var(--txt1)'}}>{kind==='dep'?'Dependência entre iniciativas':'Pendência da iniciativa'}</div>
           </div>
           <div style={{padding:'20px 22px',display:'flex',flexDirection:'column',gap:14}}>
             {kind==='dep'?(
               <React.Fragment>
-                <div><div style={{fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8,marginBottom:5}}>Origem</div>
+                <div><div style={lbl}>Origem</div>
                   <select value={data.origem} onChange={e=>set('origem',e.target.value)} style={ist}>{allG.map(g=><option key={g} value={g}>{g}</option>)}</select></div>
-                <div><div style={{fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8,marginBottom:5}}>Destino</div>
-                  <select value={data.destino} onChange={e=>set('destino',e.target.value)} style={ist}>{allG.map(g=><option key={g} value={g}>{g}</option>)}</select></div>
-                <div><div style={{fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8,marginBottom:5}}>Tipo</div>
+                <div><div style={lbl}>Tipo</div>
                   <select value={data.tipo} onChange={e=>set('tipo',e.target.value)} style={ist}>{Object.keys(DEP_TIPO).map(t=><option key={t} value={t}>{t}</option>)}</select></div>
-                <div><div style={{fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8,marginBottom:5}}>Observação</div>
+                <div><div style={lbl}>Destino</div>
+                  <select value={data.destino} onChange={e=>set('destino',e.target.value)} style={ist}>{allG.map(g=><option key={g} value={g}>{g}</option>)}</select></div>
+                <div><div style={lbl}>Observação</div>
                   <textarea value={data.obs} onChange={e=>set('obs',e.target.value)} rows={3} style={{...ist,resize:'vertical'}}/></div>
               </React.Fragment>
             ):(
               <React.Fragment>
-                <div><div style={{fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8,marginBottom:5}}>Descrição</div>
-                  <textarea value={data.descricao} onChange={e=>set('descricao',e.target.value)} rows={2} style={{...ist,resize:'vertical'}}/></div>
-                <div><div style={{fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8,marginBottom:5}}>Iniciativa relacionada</div>
-                  <select value={data.iniciativa} onChange={e=>set('iniciativa',e.target.value)} style={ist}><option value="">—</option>{allG.map(g=><option key={g} value={g}>{g}</option>)}</select></div>
+                <div><div style={lbl}>Iniciativa</div>
+                  <select value={data.iniciativa} onChange={e=>set('iniciativa',e.target.value)} style={ist}>{allG.map(g=><option key={g} value={g}>{g}</option>)}</select></div>
+                <div><div style={lbl}>Pendência</div>
+                  <textarea autoFocus value={data.descricao} onChange={e=>set('descricao',e.target.value)} rows={2} placeholder="O que falta para a iniciativa andar?" style={{...ist,resize:'vertical'}}/></div>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-                  <div><div style={{fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8,marginBottom:5}}>Severidade</div>
-                    <select value={data.severidade} onChange={e=>set('severidade',e.target.value)} style={ist}>{Object.keys(RISK_SEV).map(s=><option key={s} value={s}>{s}</option>)}</select></div>
-                  <div><div style={{fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8,marginBottom:5}}>Status</div>
-                    <select value={data.status} onChange={e=>set('status',e.target.value)} style={ist}>{Object.keys(RISK_STATUS).map(s=><option key={s} value={s}>{s}</option>)}</select></div>
+                  <div><div style={lbl}>Responsável</div>
+                    <input value={data.responsavel||''} onChange={e=>set('responsavel',e.target.value)} style={ist}/></div>
+                  <div><div style={lbl}>Prazo</div>
+                    <input type="date" value={data.prazo||''} onChange={e=>set('prazo',e.target.value)} style={ist}/></div>
                 </div>
-                <div><div style={{fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8,marginBottom:5}}>Mitigação</div>
-                  <textarea value={data.mitigacao} onChange={e=>set('mitigacao',e.target.value)} rows={2} style={{...ist,resize:'vertical'}}/></div>
+                <div><div style={lbl}>Status</div>
+                  <select value={data.status} onChange={e=>set('status',e.target.value)} style={ist}>{Object.keys(PEND_STATUS).map(s=><option key={s} value={s}>{s}</option>)}</select></div>
+                <div><div style={lbl}>Observação</div>
+                  <textarea value={data.obs||''} onChange={e=>set('obs',e.target.value)} rows={2} style={{...ist,resize:'vertical'}}/></div>
               </React.Fragment>
             )}
           </div>
@@ -2188,56 +2222,99 @@ function DependenciasRiscosView({tasks,deps,setDeps,riscos,setRiscos,allG=[],can
     );
   };
 
+  const btnSm={padding:'3px 8px',borderRadius:6,fontSize:10.5,cursor:'pointer',whiteSpace:'nowrap'};
+  const btnEd={...btnSm,background:'rgba(180,83,9,.07)',border:'1px solid rgba(180,83,9,.2)',color:'#B45309'};
+  const btnDel={...btnSm,background:'rgba(220,38,38,.07)',border:'1px solid rgba(220,38,38,.2)',color:'#DC2626'};
+  const secTit={fontSize:10,fontWeight:700,color:'var(--txt3)',textTransform:'uppercase',letterSpacing:.8,display:'flex',alignItems:'center',gap:8,marginBottom:8};
+
   return(
     <div style={{padding:'20px 24px 48px'}}>
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16,flexWrap:'wrap',gap:10}}>
-        <div style={{display:'flex',gap:6,background:'var(--bg)',border:'1px solid var(--border2)',borderRadius:9,padding:3}}>
-          <button onClick={()=>setTab('dep')} style={{padding:'6px 14px',borderRadius:7,border:'none',fontSize:12,fontWeight:600,cursor:'pointer',background:tab==='dep'?'rgba(99,102,241,.12)':'transparent',color:tab==='dep'?'var(--accent)':'var(--txt2)'}}>Dependências ({deps.length})</button>
-          <button onClick={()=>setTab('risco')} style={{padding:'6px 14px',borderRadius:7,border:'none',fontSize:12,fontWeight:600,cursor:'pointer',background:tab==='risco'?'rgba(220,38,38,.1)':'transparent',color:tab==='risco'?'#DC2626':'var(--txt2)'}}>Riscos ({riscos.length})</button>
+        <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+          <span style={{fontSize:13,fontWeight:700,color:'var(--txt1)'}}>Por iniciativa</span>
+          <span style={{fontSize:11,color:'var(--txt3)',background:'var(--bg2)',border:'1px solid var(--border)',padding:'1px 9px',borderRadius:99}}>
+            {totAbertas} pendência{totAbertas!==1?'s':''} aberta{totAbertas!==1?'s':''} · {deps.length} dependência{deps.length!==1?'s':''}
+          </span>
+          {totVencidas>0&&<span style={{fontSize:11,fontWeight:700,color:'#DC2626'}}>{totVencidas} vencida{totVencidas!==1?'s':''}</span>}
         </div>
-        {canEdit&&<button onClick={tab==='dep'?newDep:newRisco} style={{padding:'7px 16px',background:'linear-gradient(135deg,var(--accent),var(--cyan))',border:'none',borderRadius:99,color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}}>{tab==='dep'?'+ Nova dependência':'+ Novo risco'}</button>}
+        <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+          <label style={{display:'flex',alignItems:'center',gap:5,fontSize:11.5,color:'var(--txt2)',cursor:'pointer'}}><input type="checkbox" checked={verResolvidas} onChange={e=>setVerResolvidas(e.target.checked)}/>Resolvidas</label>
+          <label style={{display:'flex',alignItems:'center',gap:5,fontSize:11.5,color:'var(--txt2)',cursor:'pointer'}}><input type="checkbox" checked={todas} onChange={e=>setTodas(e.target.checked)}/>Todas as iniciativas</label>
+          <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar iniciativa ou pendência..." style={{padding:'6px 11px',background:'var(--bg)',border:'1px solid var(--border)',borderRadius:8,color:'var(--txt1)',fontSize:12.5,outline:'none',minWidth:200}}/>
+          {canEdit&&<button onClick={()=>newPend()} style={{padding:'7px 14px',background:'linear-gradient(135deg,var(--accent),var(--cyan))',border:'none',borderRadius:99,color:'#fff',fontSize:12,fontWeight:700,cursor:'pointer'}}>+ Pendência</button>}
+          {canEdit&&<button onClick={()=>newDep()} style={{padding:'6px 14px',background:'transparent',border:'1px solid var(--accent)',borderRadius:99,color:'var(--accent)',fontSize:12,fontWeight:700,cursor:'pointer'}}>+ Dependência</button>}
+        </div>
       </div>
 
-      {tab==='dep'?(
-        deps.length===0
-          ?<div style={{padding:'50px 20px',textAlign:'center',color:'var(--txt3)',fontSize:13}}>Nenhuma dependência mapeada entre iniciativas ainda.</div>
-          :<div style={{display:'flex',flexDirection:'column',gap:8}}>
-            {deps.map(d=>(
-              <div key={d.id} style={{background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:10,padding:'12px 16px',display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
-                <span style={{fontSize:13,fontWeight:600,color:'var(--txt1)'}}>{d.origem}</span>
-                <span style={{fontSize:10,fontWeight:700,padding:'2px 9px',borderRadius:99,background:(DEP_TIPO[d.tipo]||DEP_TIPO.Relacionada).bg,color:(DEP_TIPO[d.tipo]||DEP_TIPO.Relacionada).c}}>{d.tipo}</span>
-                <span style={{fontSize:13,fontWeight:600,color:'var(--txt1)'}}>{d.destino}</span>
-                {d.obs&&<span style={{fontSize:12,color:'var(--txt3)',flex:1}}>{d.obs}</span>}
-                {canEdit&&<div style={{display:'flex',gap:6,marginLeft:'auto'}}>
-                  <button onClick={()=>setForm({kind:'dep',data:d})} style={{padding:'4px 9px',borderRadius:6,background:'rgba(180,83,9,.07)',border:'1px solid rgba(180,83,9,.2)',color:'#B45309',fontSize:11,cursor:'pointer'}}>Editar</button>
-                  <button onClick={()=>delDep(d.id)} style={{padding:'4px 9px',borderRadius:6,background:'rgba(220,38,38,.07)',border:'1px solid rgba(220,38,38,.2)',color:'#DC2626',fontSize:11,cursor:'pointer'}}>Excluir</button>
+      {grupos.length===0
+        ?<div style={{padding:'50px 20px',textAlign:'center',color:'var(--txt3)',fontSize:13}}>Nenhuma pendência ou dependência mapeada{busca?' para essa busca':''}.</div>
+        :<div style={{display:'flex',flexDirection:'column',gap:12}}>
+          {grupos.map(({g,pend,abertas,vencidas,dps})=>{
+            const aberta=!fechadas.has(g);
+            const visiveis=(verResolvidas?pend:abertas).slice().sort((a,b)=>(a.status==='Resolvida')-(b.status==='Resolvida')||(a.prazo||'9999').localeCompare(b.prazo||'9999'));
+            return(
+              <div key={g} style={{background:'var(--bg1)',border:'1px solid var(--border)',borderLeft:'3px solid '+(vencidas.length?'#DC2626':abertas.length?'#B45309':'var(--border)'),borderRadius:12,overflow:'hidden'}}>
+                <div style={{padding:'12px 16px',display:'flex',alignItems:'center',gap:10,background:'var(--bg2)',borderBottom:aberta?'1px solid var(--border)':'none',flexWrap:'wrap'}}>
+                  <button onClick={()=>toggleFechada(g)} title={aberta?'Recolher':'Expandir'} style={{background:'none',border:'none',color:'var(--txt3)',cursor:'pointer',padding:2,display:'flex',transform:aberta?'rotate(0deg)':'rotate(-90deg)',transition:'transform .15s'}}><Ic n="chevron" s={15} c="currentColor"/></button>
+                  <span style={{fontSize:14,fontWeight:700,color:'var(--txt1)',flex:1,minWidth:0}}>{g}</span>
+                  <span style={{fontSize:10.5,fontWeight:700,padding:'2px 9px',borderRadius:99,background:abertas.length?'rgba(180,83,9,.1)':'var(--bg)',color:abertas.length?'#B45309':'var(--txt3)',border:'1px solid var(--border)'}}>{abertas.length} pendência{abertas.length!==1?'s':''}</span>
+                  {vencidas.length>0&&<span style={{fontSize:10.5,fontWeight:700,padding:'2px 9px',borderRadius:99,background:'rgba(220,38,38,.1)',color:'#DC2626'}}>{vencidas.length} vencida{vencidas.length!==1?'s':''}</span>}
+                  <span style={{fontSize:10.5,fontWeight:700,padding:'2px 9px',borderRadius:99,background:'var(--bg)',color:'var(--txt2)',border:'1px solid var(--border)'}}>{dps.length} dependência{dps.length!==1?'s':''}</span>
+                </div>
+                {aberta&&<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))',gap:18,padding:'14px 16px'}}>
+                  <div>
+                    <div style={secTit}>Pendências{canEdit&&<button onClick={()=>newPend(g)} style={{...btnSm,marginLeft:'auto',border:'1px dashed var(--border2)',background:'transparent',color:'var(--accent)',fontWeight:700}}>+ Pendência</button>}</div>
+                    {visiveis.length===0
+                      ?<div style={{fontSize:12,color:'var(--txt3)'}}>Nenhuma pendência {verResolvidas?'':'aberta'}.</div>
+                      :visiveis.map(p=>{
+                        const ok=p.status==='Resolvida';
+                        const venc=!ok&&p.prazo&&p.prazo<hoje;
+                        return(
+                          <div key={p.id} style={{display:'flex',alignItems:'flex-start',gap:8,padding:'7px 0',borderBottom:'1px solid var(--border)'}}>
+                            <input type="checkbox" checked={ok} disabled={!canEdit} onChange={()=>togglePend(p)} title={ok?'Reabrir':'Marcar como resolvida'} style={{marginTop:2,cursor:canEdit?'pointer':'default'}}/>
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{fontSize:12.5,color:ok?'var(--txt3)':'var(--txt1)',textDecoration:ok?'line-through':'none',lineHeight:1.4}}>{p.descricao}</div>
+                              <div style={{display:'flex',gap:8,flexWrap:'wrap',fontSize:10.5,color:'var(--txt3)',marginTop:2}}>
+                                {p.responsavel&&<span>{p.responsavel}</span>}
+                                {p.prazo&&<span style={{color:venc?'#DC2626':'var(--txt3)',fontWeight:venc?700:400}}>prazo {fmtPrazo(p.prazo)}{venc?' · vencida':''}</span>}
+                                {p.obs&&<span title={p.obs} style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:220}}>{p.obs}</span>}
+                              </div>
+                            </div>
+                            {canEdit&&<div style={{display:'flex',gap:4,flexShrink:0}}>
+                              <button onClick={()=>setForm({kind:'pend',data:p})} style={btnEd}>Editar</button>
+                              <button onClick={()=>delPend(p.id)} style={btnDel}>Excluir</button>
+                            </div>}
+                          </div>
+                        );
+                      })}
+                  </div>
+                  <div>
+                    <div style={secTit}>Dependências{canEdit&&<button onClick={()=>newDep(g)} style={{...btnSm,marginLeft:'auto',border:'1px dashed var(--border2)',background:'transparent',color:'var(--accent)',fontWeight:700}}>+ Dependência</button>}</div>
+                    {dps.length===0
+                      ?<div style={{fontSize:12,color:'var(--txt3)'}}>Nenhuma dependência.</div>
+                      :dps.map(d=>{
+                        const sai=d.origem===g;
+                        const outra=sai?d.destino:d.origem;
+                        const cfg=DEP_TIPO[d.tipo]||DEP_TIPO.Relacionada;
+                        return(
+                          <div key={d.id} style={{display:'flex',alignItems:'center',gap:8,padding:'7px 0',borderBottom:'1px solid var(--border)',flexWrap:'wrap'}}>
+                            <span title={sai?'Esta iniciativa → outra':'Outra iniciativa → esta'} style={{fontSize:12,color:'var(--txt3)',width:14,textAlign:'center'}}>{sai?'→':'←'}</span>
+                            <span style={{fontSize:10,fontWeight:700,padding:'2px 8px',borderRadius:99,background:cfg.bg,color:cfg.c}}>{sai?d.tipo:(DEP_INV[d.tipo]||d.tipo)}</span>
+                            <span style={{fontSize:12.5,fontWeight:600,color:'var(--txt1)',flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={outra}>{outra}</span>
+                            {d.obs&&<span title={d.obs} style={{fontSize:11,color:'var(--txt3)',maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{d.obs}</span>}
+                            {canEdit&&<div style={{display:'flex',gap:4}}>
+                              <button onClick={()=>setForm({kind:'dep',data:d})} style={btnEd}>Editar</button>
+                              <button onClick={()=>delDep(d.id)} style={btnDel}>Excluir</button>
+                            </div>}
+                          </div>
+                        );
+                      })}
+                  </div>
                 </div>}
               </div>
-            ))}
-          </div>
-      ):(
-        riscos.length===0
-          ?<div style={{padding:'50px 20px',textAlign:'center',color:'var(--txt3)',fontSize:13}}>Nenhum risco mapeado ainda.</div>
-          :<div style={{display:'flex',flexDirection:'column',gap:8}}>
-            {riscos.map(r=>(
-              <div key={r.id} style={{background:'var(--bg1)',border:'1px solid var(--border)',borderRadius:10,padding:'12px 16px'}}>
-                <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:r.mitigacao?6:0}}>
-                  <span style={{fontSize:10,fontWeight:700,padding:'2px 9px',borderRadius:99,background:(RISK_SEV[r.severidade]||RISK_SEV.Media).bg,color:(RISK_SEV[r.severidade]||RISK_SEV.Media).c}}>{r.severidade}</span>
-                  <span style={{fontSize:10,fontWeight:700,padding:'2px 9px',borderRadius:99,background:(RISK_STATUS[r.status]||RISK_STATUS.Ativo).bg,color:(RISK_STATUS[r.status]||RISK_STATUS.Ativo).c}}>{r.status}</span>
-                  <span title={r.iniciativa?'Iniciativa vinculada':'Risco sem iniciativa vinculada'} style={{display:'inline-flex',alignItems:'center',gap:5,fontSize:11,fontWeight:600,padding:'2px 9px',borderRadius:99,maxWidth:280,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',background:r.iniciativa?'var(--bg3)':'transparent',border:'1px solid '+(r.iniciativa?'var(--border2)':'var(--border)'),color:r.iniciativa?'var(--accent)':'var(--txt3)'}}>
-                    <Ic n="link" s={11} c="currentColor"/>{r.iniciativa||'Sem iniciativa'}
-                  </span>
-                  <span style={{fontSize:13,color:'var(--txt1)',fontWeight:600}}>{r.descricao}</span>
-                  {canEdit&&<div style={{display:'flex',gap:6,marginLeft:'auto'}}>
-                    <button onClick={()=>setForm({kind:'risco',data:r})} style={{padding:'4px 9px',borderRadius:6,background:'rgba(180,83,9,.07)',border:'1px solid rgba(180,83,9,.2)',color:'#B45309',fontSize:11,cursor:'pointer'}}>Editar</button>
-                    <button onClick={()=>delRisco(r.id)} style={{padding:'4px 9px',borderRadius:6,background:'rgba(220,38,38,.07)',border:'1px solid rgba(220,38,38,.2)',color:'#DC2626',fontSize:11,cursor:'pointer'}}>Excluir</button>
-                  </div>}
-                </div>
-                {r.mitigacao&&<div style={{fontSize:12,color:'var(--txt2)',paddingLeft:2}}><span style={{color:'var(--txt3)'}}>Mitigação: </span>{r.mitigacao}</div>}
-              </div>
-            ))}
-          </div>
-      )}
+            );
+          })}
+        </div>}
       <Modal/>
     </div>
   );
@@ -2482,7 +2559,7 @@ function AppMain({currentUser,onLogout}){
   const[ordem,setOrdem]=useState({});       // {iniciativa:[ids na ordem do backlog]}
   const[backlog,setBacklog]=useState({});   // {idTarefa:coluna do kanban de backlog}
   const[deps,setDeps]=useState([]);
-  const[riscos,setRiscos]=useState([]);
+  const[pendencias,setPendencias]=useState([]);
   const[nextId,setNextId]=useState(1);
   // Ids novos partem do relogio (e nunca repetem na sessao). Um contador "max+1" calculado no
   // carregamento colidia com tarefas criadas por outro usuario depois disso — o upsert
@@ -2548,7 +2625,7 @@ function AppMain({currentUser,onLogout}){
         const ids=teams.map(t=>t.id);
         const tid=validTeamId;
         const g=k=>tid?dbGet(k,tid,true):dbGetAll(k,ids);
-        const[t,is,u,sp,tp,dp,rk,pa,od,bk]=await Promise.all([loadTasks(tid,!!tid),g('istatus'),dbGet('users'),loadStatusProduto(tid),g('tipos'),g('dependencias'),g('riscos'),g('parents'),g('ordem'),g('backlog')]);
+        const[t,is,u,sp,tp,dp,rk,pa,od,bk]=await Promise.all([loadTasks(tid,!!tid),g('istatus'),dbGet('users'),loadStatusProduto(tid),g('tipos'),g('dependencias'),g('pendencias'),g('parents'),g('ordem'),g('backlog')]);
         if(Array.isArray(sp)&&sp.length>0)setStatusProduto(sp);
         const maxId=await loadMaxTaskId();
         if(cancelled)return;
@@ -2565,7 +2642,7 @@ function AppMain({currentUser,onLogout}){
         setOrdem(od&&typeof od==='object'&&!Array.isArray(od)?od:{});
         setBacklog(bk&&typeof bk==='object'&&!Array.isArray(bk)?bk:{});
         setDeps(Array.isArray(dp)?dp:[]);
-        setRiscos(Array.isArray(rk)?rk:[]);
+        setPendencias(Array.isArray(rk)?rk:[]);
       }catch(e){
         if(cancelled)return;
         console.error('Load error:',e);setLoadError(e.message||'Falha ao carregar os dados.');
@@ -2596,7 +2673,7 @@ function AppMain({currentUser,onLogout}){
   useEffect(()=>{if(!rw)return;const t=setTimeout(()=>persist(()=>dbSet('ordem',ordem,validTeamId)),600);return()=>clearTimeout(t);},[ordem,rw,validTeamId,persist,saveTick]);
   useEffect(()=>{if(!rw)return;const t=setTimeout(()=>persist(()=>dbSet('backlog',backlog,validTeamId)),600);return()=>clearTimeout(t);},[backlog,rw,validTeamId,persist,saveTick]);
   useEffect(()=>{if(!rw)return;const t=setTimeout(()=>persist(()=>dbSet('dependencias',deps,validTeamId)),600);return()=>clearTimeout(t);},[deps,rw,validTeamId,persist,saveTick]);
-  useEffect(()=>{if(!rw)return;const t=setTimeout(()=>persist(()=>dbSet('riscos',riscos,validTeamId)),600);return()=>clearTimeout(t);},[riscos,rw,validTeamId,persist,saveTick]);
+  useEffect(()=>{if(!rw)return;const t=setTimeout(()=>persist(()=>dbSet('pendencias',pendencias,validTeamId)),600);return()=>clearTimeout(t);},[pendencias,rw,validTeamId,persist,saveTick]);
   const active=useMemo(()=>tasks.filter(t=>!DONE.includes(t.s)),[tasks]);
   // Tasks split by initiative status
   // tarefas paradas no backlog de proposito saem do board, mesmo que a iniciativa esteja andando
@@ -2672,7 +2749,7 @@ function AppMain({currentUser,onLogout}){
     ['board','Board','🗂️'],
     ['timeline','Timeline','📅'],
     ['backlog','Backlog','🗒️'],
-    ['depriscos','Dependências & Riscos','🔗'],
+    ['depriscos','Dependências & Pendências','🔗'],
     ['historico','Histórico','✅'],
   ];
   const viewLbl=(VIEWS.find(v=>v[0]===view)||[,'Planeja Merchant'])[1];
@@ -2774,11 +2851,11 @@ function AppMain({currentUser,onLogout}){
         </div>
         <div style={{flex:1,minWidth:0}}>
           {view==='meu'?<MeuTrabalhoView tasks={tasks} currentUser={currentUser} deps={deps} iStatus={iStatus} openEdit={canEdit?openEdit:null}/>
-            :view==='dashboard'?<DashboardView tasks={tasks} iStatus={iStatus} riscos={riscos} deps={deps} onDrill={goView}/>
+            :view==='dashboard'?<DashboardView tasks={tasks} iStatus={iStatus} pendencias={pendencias} deps={deps} onDrill={goView}/>
             :view==='board'?<BoardView key={drill?drill.key:'board'} initialFilter={drill||{}} tasks={boardTasks} setTasks={setTasks} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null} iStatus={iStatus} setIStatus={canEdit?setIStatus:null} openBulkCreate={canEdit?setBulkCreate:null} statusProduto={statusProduto} tipos={tipos} resps={resps} parents={parents} openCreateSub={canEdit?openCreateSub:null} allTasks={tasks} onAddSub={canEdit?addSub:null}/>
             :view==='timeline'?<Timeline tasks={boardTasks} setTasks={setTasks} iStatus={iStatus} setIStatus={setIStatus} parents={parents} tipos={tipos} deps={deps} allTasks={tasks}/>
             :view==='backlog'?<BacklogView tasks={tasks} iStatus={iStatus} statusProduto={statusProduto} setIStatus={canEdit?setIStatus:null} openCreate={canEdit?openCreate:null} openEdit={canEdit?openEdit:null} parents={parents} tipos={tipos} ordem={ordem} setOrdem={canEdit?setOrdem:null} openCreateSub={canEdit?openCreateSub:null} setTasks={canEdit?setTasks:null} onAddSub={canEdit?addSub:null} backlog={backlog} setBacklog={canEdit?setBacklog:null} onAddBacklogTask={canEdit?addBacklogTask:null} allG={allG}/>
-            :view==='depriscos'?<DependenciasRiscosView tasks={tasks} deps={deps} setDeps={setDeps} riscos={riscos} setRiscos={setRiscos} allG={allG} canEdit={canEdit}/>
+            :view==='depriscos'?<DependenciasPendenciasView tasks={tasks} deps={deps} setDeps={setDeps} pendencias={pendencias} setPendencias={setPendencias} allG={allG} canEdit={canEdit}/>
             :<HistoricoView tasks={historicoTasks} allTasks={tasks} setTasks={setTasks} parents={parents} tipos={tipos} openEdit={openEdit} iStatus={iStatus} setIStatus={canEdit?setIStatus:null} statusProduto={statusProduto} openBulkCreate={canEdit?setBulkCreate:null} canEdit={canEdit}/>}
         </div>
       </div>
